@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>mssqlcl</AssemblyName>
+    <RootNamespace>MssqlCl</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>Brayan Raul Sullca Ccarampa</Authors>
+    <Company>codevswia</Company>
+    <Copyright>Copyright (c) 2026 Brayan Raul Sullca Ccarampa (codevswia)</Copyright>
+    <PackageProjectUrl>https://github.com/codevswia/mssqlcl</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/codevswia/mssqlcl</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Description>SQL Server MCP server and CLI inspired by Oracle SQLcl, reusing VS Code and Antigravity IDE ms-mssql connections.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.2" />
+    <PackageReference Include="Microsoft.Data.SqlClient.Extensions.Azure" Version="7.1.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="11.0.0" />
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="11.0.0" />
+  </ItemGroup>
+
+</Project>

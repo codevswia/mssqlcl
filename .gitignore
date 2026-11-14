@@ -1,0 +1,23 @@
+# Build artifacts
+bin/
+obj/
+publish/
+out/
+
+# IDE / User-specific files
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local secrets / test artifacts / logs
+*.log
+*.db
+*.vscdb
+*.dat
+.env
+*.pfx
+*.snk
+TestResults/
