@@ -39,24 +39,42 @@ Configure your SQL Server connections once in VS Code, Antigravity IDE, or via `
 ## Requirements
 
 - Windows 10 / 11 (DPAPI + Electron `SecretStorage` decryption)
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) (or use `-SelfContained` during installation)
+- **End users (ZIP / Release):** No .NET installation required (self-contained binary)
+- **Building from source:** [.NET 10 SDK](https://dotnet.microsoft.com/download)
 
 ---
 
-## Build, Test & Install
+## Installation
+
+### Option 1: Portable ZIP (Offline / Oracle SQLcl-style — Recommended)
+
+1. Download `mssqlcl-vX.Y.Z-win-x64.zip` from [GitHub Releases](https://github.com/codevswia/mssqlcl/releases).
+2. Extract it anywhere (for example `C:\tools\mssqlcl\`).
+3. Either run `mssqlcl.exe` directly, or run the included offline installer to copy it to `%LOCALAPPDATA%\Programs\mssqlcl` and add it to your User `PATH`:
+
+```powershell
+.\install-local.ps1
+```
+
+### Option 2: One-Command Online Installer (PowerShell, no .NET SDK required)
+
+```powershell
+irm https://raw.githubusercontent.com/codevswia/mssqlcl/main/scripts/install.ps1 | iex
+```
+
+*(You can also install a downloaded ZIP via `.\scripts\install.ps1 -LocalZip path\to\mssqlcl-vX.Y.Z-win-x64.zip`.)*
+
+### Option 3: Build & Install from Source
 
 ```powershell
 # Build & run unit tests
 dotnet test
 
-# Install mssqlcl.exe to %LOCALAPPDATA%\Programs\mssqlcl and add to User PATH
-.\scripts\install.ps1
-```
+# Build and install mssqlcl.exe to %LOCALAPPDATA%\Programs\mssqlcl and add to User PATH
+.\scripts\install.ps1 -FromSource
 
-To build a fully standalone binary that does not require the .NET runtime installed:
-
-```powershell
-.\scripts\install.ps1 -SelfContained
+# Or build a standalone self-contained binary from source
+.\scripts\install.ps1 -FromSource -SelfContained
 ```
 
 ---
@@ -64,6 +82,9 @@ To build a fully standalone binary that does not require the .NET runtime instal
 ## CLI Usage
 
 ```powershell
+# Verify environment, IDE discovery paths, and local vault health
+mssqlcl doctor
+
 # List discovered profiles and credential resolution status
 mssqlcl conn list
 

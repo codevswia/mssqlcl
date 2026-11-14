@@ -26,7 +26,7 @@ public static class Program
             var discovery = new ProfileDiscoveryService(locator, vault);
             var creds = new CredentialResolver(new IdeSecretReader(), vault);
             await using var sessions = new SessionManager(creds);
-            var cli = new CliHandler(discovery, creds, vault, sessions);
+            var cli = new CliHandler(discovery, creds, vault, sessions, locator);
             return await cli.ExecuteAsync(args, options, CancellationToken.None);
         }
 

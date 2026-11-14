@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 using MssqlCl.Database;
 using MssqlCl.Discovery;
@@ -14,17 +15,20 @@ public sealed class CliHandler
     private readonly CredentialResolver _credentials;
     private readonly LocalVaultStore _vault;
     private readonly SessionManager _sessions;
+    private readonly IdeSourceLocator _locator;
 
     public CliHandler(
         ProfileDiscoveryService discovery,
         CredentialResolver credentials,
         LocalVaultStore vault,
-        SessionManager sessions)
+        SessionManager sessions,
+        IdeSourceLocator? locator = null)
     {
         _discovery = discovery;
         _credentials = credentials;
         _vault = vault;
         _sessions = sessions;
+        _locator = locator ?? new IdeSourceLocator();
     }
 
     public async Task<int> ExecuteAsync(string[] args, McpOptions options, CancellationToken ct)
@@ -46,6 +50,11 @@ public sealed class CliHandler
         {
             PrintUsage();
             return 0;
+        }
+
+        if (positional[0].Equals("doctor", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunDoctor(options);
         }
 
         if (!positional[0].Equals("conn", StringComparison.OrdinalIgnoreCase))
@@ -229,6 +238,83 @@ public sealed class CliHandler
         return sb.ToString();
     }
 
+    private int RunDoctor(McpOptions options)
+    {
+        Console.WriteLine("mssqlcl doctor");
+        Console.WriteLine(new string('-', 60));
+        Console.WriteLine($"Version      : 1.0.0");
+        Console.WriteLine($"Executable   : {Environment.ProcessPath ?? "unknown"}");
+        Console.WriteLine($"OS / Arch    : {RuntimeInformation.OSDescription.Trim()} ({RuntimeInformation.OSArchitecture})");
+        Console.WriteLine($"Runtime      : .NET {Environment.Version}");
+        Console.WriteLine();
+
+        var localDir = _locator.LocalStoreDir;
+        var localExists = Directory.Exists(localDir);
+        var localWritable = CheckDirectoryWritable(localDir);
+        Console.WriteLine("Local Vault & Audit:");
+        Console.WriteLine($"  Directory  : {localDir} [{(localExists ? "EXISTS" : "WILL CREATE ON USE")}] [{(localWritable ? "WRITABLE" : "NOT WRITABLE")}]");
+        Console.WriteLine($"  connections.json : {(File.Exists(Path.Combine(localDir, "connections.json")) ? "OK" : "none")}");
+        Console.WriteLine($"  vault.json       : {(File.Exists(Path.Combine(localDir, "vault.json")) ? "OK" : "none")}");
+        Console.WriteLine($"  audit.log        : {(File.Exists(Path.Combine(localDir, "audit.log")) ? "OK" : "none")}");
+        Console.WriteLine();
+
+        Console.WriteLine("IDE Discovery Sources:");
+        foreach (var sourceName in new[] { "antigravity", "vscode" })
+        {
+            var dir = _locator.GetIdeDirectory(sourceName);
+            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+            {
+                Console.WriteLine($"  {sourceName,-11}: [NOT FOUND] ({dir ?? "unconfigured"})");
+                continue;
+            }
+
+            var hasSettings = File.Exists(Path.Combine(dir, "User", "settings.json"));
+            var hasStateDb = File.Exists(Path.Combine(dir, "User", "globalStorage", "state.vscdb"));
+            var hasLocalState = File.Exists(Path.Combine(dir, "Local State"));
+            Console.WriteLine(
+                $"  {sourceName,-11}: [FOUND] settings.json={(hasSettings ? "OK" : "NO")}, " +
+                $"state.vscdb={(hasStateDb ? "OK" : "NO")}, LocalState={(hasLocalState ? "OK" : "NO")}");
+        }
+        Console.WriteLine();
+
+        var profiles = _discovery.ListProfiles(options);
+        var resolvedCount = profiles.Count(p => _credentials.Resolve(p).Success);
+        Console.WriteLine("Discovered Profiles:");
+        Console.WriteLine($"  Total      : {profiles.Count}");
+        Console.WriteLine($"  Resolvable : {resolvedCount}/{profiles.Count}");
+
+        if (!localWritable)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("[FAIL] Local store directory is not writable.");
+            return 1;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("[OK] Environment looks healthy. Run 'mssqlcl conn list' to inspect profiles.");
+        return 0;
+    }
+
+    private static bool CheckDirectoryWritable(string dir)
+    {
+        try
+        {
+            var target = Directory.Exists(dir) ? dir : Path.GetDirectoryName(dir);
+            if (string.IsNullOrWhiteSpace(target) || !Directory.Exists(target))
+            {
+                return false;
+            }
+
+            var probe = Path.Combine(target, $".mssqlcl-write-check-{Guid.NewGuid():N}");
+            using (File.Create(probe, 1, FileOptions.DeleteOnClose)) { }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static List<string> StripGlobalFlags(string[] args)
     {
         var list = new List<string>();
@@ -280,6 +366,7 @@ public sealed class CliHandler
 
             USAGE:
               mssqlcl --mcp [options]                 Start MCP server over stdio
+              mssqlcl doctor [options]                Check local vault, IDE discovery, and environment health
               mssqlcl conn list [filter] [options]    List discovered VS Code / Antigravity / local profiles
               mssqlcl conn test <profile> [--db db]   Test live SQL Server connectivity
               mssqlcl conn save --profile <name> ...  Save a local profile or DPAPI password override
