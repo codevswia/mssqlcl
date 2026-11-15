@@ -1,0 +1,245 @@
+name: Watch - Extension MSSQL Upstream
+run-name: Watch extension-mssql (${{ github.event_name }})
+
+on:
+  schedule:
+    # Runs every Monday at 06:00 AM Peru time (UTC-5 = 11:00 UTC)
+    - cron: '0 11 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (log summary without creating an Issue)'
+        required: false
+        default: false
+        type: boolean
+      baseline_override:
+        description: 'Optional previous tag override for comparison (e.g. mssql-v1.46.0)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  issues: write
+  contents: read
+
+env:
+  UPSTREAM_REPO: microsoft/vscode-mssql
+  BASELINE_TAG: mssql-v1.47.0
+  UPSTREAM_LABEL: upstream-sync
+
+jobs:
+  watch-upstream:
+    name: Check vscode-mssql Releases
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch latest vscode-mssql release
+        id: upstream
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $headers = @{
+            "User-Agent" = "mssqlcl-upstream-watch"
+            "Accept"     = "application/vnd.github+json"
+            "Authorization" = "Bearer $env:GH_TOKEN"
+          }
+
+          $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:UPSTREAM_REPO/releases?per_page=30" -Headers $headers
+          $latest = $releases | Where-Object {
+            -not $_.draft -and -not $_.prerelease -and $_.tag_name -match '^mssql-v\d+\.\d+\.\d+'
+          } | Select-Object -First 1
+
+          if (-not $latest) {
+            Write-Error "No stable mssql-v* release found in $env:UPSTREAM_REPO."
+            exit 1
+          }
+
+          Write-Host "Latest upstream tag : $($latest.tag_name)"
+          Write-Host "Published at        : $($latest.published_at)"
+          Write-Host "Release URL         : $($latest.html_url)"
+
+          "latest_tag=$($latest.tag_name)"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "published_at=$($latest.published_at)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "release_url=$($latest.html_url)"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          $body = if ($latest.body) { $latest.body } else { "_No release notes provided._" }
+          if ($body.Length -gt 25000) {
+            $body = $body.Substring(0, 25000) + "`n`n...(truncated)"
+          }
+          $body | Out-File -FilePath "$env:RUNNER_TEMP/release_notes.md" -Encoding utf8
+
+      - name: Check if release is already tracked
+        id: check
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $latestTag = "${{ steps.upstream.outputs.latest_tag }}"
+          $override  = "${{ github.event.inputs.baseline_override }}".Trim()
+          $isDryRun  = "${{ github.event.inputs.dry_run }}" -eq "true"
+
+          Write-Host "Baseline tag : $env:BASELINE_TAG"
+          Write-Host "Latest tag   : $latestTag"
+          Write-Host "Dry run      : $isDryRun"
+
+          $headers = @{
+            "User-Agent"    = "mssqlcl-upstream-watch"
+            "Accept"        = "application/vnd.github+json"
+            "Authorization" = "Bearer $env:GH_TOKEN"
+          }
+
+          $issues = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/issues?state=all&labels=$env:UPSTREAM_LABEL&per_page=50" -Headers $headers
+          $trackedTags = @()
+          foreach ($iss in $issues) {
+            if ($iss.title -match '(mssql-v\d+\.\d+\.\d+[^\s\]]*)') {
+              $trackedTags += $Matches[1]
+            }
+          }
+
+          $alreadyTracked = ($latestTag -eq $env:BASELINE_TAG) -or ($trackedTags -contains $latestTag)
+          $shouldOpen = (-not $alreadyTracked) -or $isDryRun
+
+          $compareBase = if ($override) {
+            $override
+          } elseif ($trackedTags.Count -gt 0 -and $trackedTags[0] -ne $latestTag) {
+            $trackedTags[0]
+          } else {
+            $env:BASELINE_TAG
+          }
+
+          Write-Host "Already tracked : $alreadyTracked"
+          Write-Host "Compare base    : $compareBase"
+          Write-Host "Should proceed  : $shouldOpen"
+
+          "should_open=$shouldOpen"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "compare_base=$compareBase" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Compare relevant MCP and connection paths
+        id: compare
+        if: steps.check.outputs.should_open == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $baseTag   = "${{ steps.check.outputs.compare_base }}"
+          $latestTag = "${{ steps.upstream.outputs.latest_tag }}"
+
+          $headers = @{
+            "User-Agent"    = "mssqlcl-upstream-watch"
+            "Accept"        = "application/vnd.github+json"
+            "Authorization" = "Bearer $env:GH_TOKEN"
+          }
+
+          $relevantPatterns = @(
+            '^extensions/mssql/src/copilot/tools/',
+            '^extensions/mssql/src/copilot/prompts',
+            '^extensions/mssql/src/copilot/chatCommands',
+            '^extensions/mssql/src/copilot/chatConstants',
+            '^extensions/mssql/src/connectionconfig/',
+            '^extensions/mssql/package\.json$'
+          )
+
+          $relevantFiles = @()
+          if ($baseTag -and $baseTag -ne $latestTag) {
+            $cmpUrl = "https://api.github.com/repos/$env:UPSTREAM_REPO/compare/$baseTag...$latestTag"
+            Write-Host "Comparing $baseTag...$latestTag"
+            $cmp = Invoke-RestMethod -Uri $cmpUrl -Headers $headers
+            foreach ($f in $cmp.files) {
+              $path = $f.filename
+              if ($relevantPatterns | Where-Object { $path -match $_ }) {
+                $relevantFiles += "- ``$($f.status)`` [``$path``]($($f.blob_url)) (+$($f.additions)/-$($f.deletions))"
+              }
+            }
+          }
+
+          if ($relevantFiles.Count -eq 0) {
+            $summary = "_No changes detected in tracked MCP/prompt/connection paths between ``$baseTag`` and ``$latestTag``._"
+          } else {
+            $summary = ($relevantFiles | Select-Object -First 40) -join "`n"
+            if ($relevantFiles.Count -gt 40) {
+              $summary += "`n- ...and $($relevantFiles.Count - 40) more relevant file(s)."
+            }
+          }
+
+          Write-Host "Relevant file count: $($relevantFiles.Count)"
+          $summary | Out-File -FilePath "$env:RUNNER_TEMP/relevant_files.md" -Encoding utf8
+
+      - name: Create upstream-sync Issue (or dry-run log)
+        if: steps.check.outputs.should_open == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $latestTag    = "${{ steps.upstream.outputs.latest_tag }}"
+          $compareBase  = "${{ steps.check.outputs.compare_base }}"
+          $publishedAt  = "${{ steps.upstream.outputs.published_at }}"
+          $releaseUrl   = "${{ steps.upstream.outputs.release_url }}"
+          $releaseNotes = Get-Content "$env:RUNNER_TEMP/release_notes.md" -Raw -Encoding utf8
+          $relevantList = Get-Content "$env:RUNNER_TEMP/relevant_files.md" -Raw -Encoding utf8
+
+          $title = "[upstream-sync] vscode-mssql $latestTag"
+          $issueBody = @(
+            "## Upstream Release Detected",
+            "",
+            "- **Repository:** ``$env:UPSTREAM_REPO``",
+            "- **New Release:** [``$latestTag``]($releaseUrl) (published ``$publishedAt``)",
+            "- **Compared Against:** ``$compareBase``",
+            "",
+            "---",
+            "",
+            "## Relevant MCP / Connection Changes (``$compareBase...$latestTag``)",
+            "",
+            "$relevantList",
+            "",
+            "---",
+            "",
+            "## Evaluation Checklist for ``mssqlcl``",
+            "",
+            "- [ ] New MCP tools or parameters in ``extensions/mssql/src/copilot/tools/``?",
+            "- [ ] New MCP prompts / behavior updates in ``prompts.ts``?",
+            "- [ ] Changes in ``mssql.connections`` schema or ``SecretStorage`` format?",
+            "- [ ] UI-only VS Code changes (ignore for headless ``mssqlcl``).",
+            "",
+            "---",
+            "",
+            "<details>",
+            "<summary>Upstream Release Notes ($latestTag)</summary>",
+            "",
+            "$releaseNotes",
+            "",
+            "</details>"
+          ) -join "`n"
+
+          if ("${{ github.event.inputs.dry_run }}" -eq "true") {
+            Write-Host "=== DRY RUN: Would create Issue '$title' ==="
+            Write-Host $issueBody
+            exit 0
+          }
+
+          $headers = @{
+            "User-Agent"    = "mssqlcl-upstream-watch"
+            "Accept"        = "application/vnd.github+json"
+            "Authorization" = "Bearer $env:GH_TOKEN"
+          }
+
+          # Ensure the 'upstream-sync' label exists before creating the issue
+          try {
+            Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/labels/$env:UPSTREAM_LABEL" -Headers $headers | Out-Null
+          } catch {
+            $labelPayload = @{
+              name        = $env:UPSTREAM_LABEL
+              color       = "1d76db"
+              description = "Upstream vscode-mssql release or MCP change to evaluate"
+            } | ConvertTo-Json
+            Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/${{ github.repository }}/labels" -Headers $headers -Body $labelPayload -ContentType "application/json; charset=utf-8" | Out-Null
+          }
+
+          $payload = @{
+            title  = $title
+            body   = $issueBody
+            labels = @($env:UPSTREAM_LABEL)
+          } | ConvertTo-Json -Depth 4
+
+          $created = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/${{ github.repository }}/issues" -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -ContentType "application/json; charset=utf-8"
+          Write-Host "Created Issue #$($created.number): $($created.html_url)"
