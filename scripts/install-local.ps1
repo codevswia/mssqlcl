@@ -6,13 +6,16 @@
 [CmdletBinding()]
 param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "Programs\mssqlcl"),
-    [string]$SourceDir = $PSScriptRoot,
+    [string]$SourceDir,
     [switch]$PauseOnExit
 )
 
 $ErrorActionPreference = "Stop"
 
 try {
+    if ([string]::IsNullOrWhiteSpace($SourceDir)) {
+        $SourceDir = $PSScriptRoot
+    }
     Write-Host "[1/4] Checking package files in '$SourceDir'..." -ForegroundColor Cyan
     $exeSource = Join-Path $SourceDir "mssqlcl.exe"
     if (-not (Test-Path $exeSource)) {
