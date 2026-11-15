@@ -1,0 +1,278 @@
+name: AI - Gemini Summarizer
+run-name: AI Gemini Summarizer (${{ github.event_name }})
+
+on:
+  workflow_call:
+    inputs:
+      context_artifact:
+        description: 'Artifact name containing the prompt file'
+        required: false
+        default: ''
+        type: string
+      prompt_file:
+        description: 'Relative path to the prompt file inside the artifact'
+        required: false
+        default: 'ai_prompt.txt'
+        type: string
+      output_artifact:
+        description: 'Output artifact name for the generated summary'
+        required: false
+        default: 'ai-summary'
+        type: string
+      model_override:
+        description: 'Optional single Gemini model override (skips fallback chain)'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      GEMINI_API_KEY:
+        description: 'Google AI Studio API key for Gemini Free Tier'
+        required: false
+    outputs:
+      ai_status:
+        description: 'Execution outcome: succeeded, skipped_no_key, or failed'
+        value: ${{ jobs.summarize.outputs.ai_status }}
+      ai_model:
+        description: 'Gemini model that produced the response'
+        value: ${{ jobs.summarize.outputs.ai_model }}
+      has_summary:
+        description: 'Whether a non-empty summary artifact was produced'
+        value: ${{ jobs.summarize.outputs.has_summary }}
+      prompt_tokens:
+        description: 'Prompt token count reported by Gemini'
+        value: ${{ jobs.summarize.outputs.prompt_tokens }}
+      output_tokens:
+        description: 'Candidate output token count reported by Gemini'
+        value: ${{ jobs.summarize.outputs.output_tokens }}
+      total_tokens:
+        description: 'Total token count reported by Gemini'
+        value: ${{ jobs.summarize.outputs.total_tokens }}
+
+  workflow_dispatch:
+    inputs:
+      test_prompt:
+        description: 'Unit-test prompt to send to Gemini'
+        required: false
+        default: 'Resume en 3 bullets cortos las ventajas de usar un servidor MCP para SQL Server en .NET 10.'
+        type: string
+      model_override:
+        description: 'Optional single Gemini model override (e.g. gemini-3.6-flash)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  summarize:
+    name: Gemini LLM Summarize
+    runs-on: ubuntu-latest
+    outputs:
+      ai_status: ${{ steps.gemini.outputs.status || steps.auth.outputs.status }}
+      ai_model: ${{ steps.gemini.outputs.model }}
+      has_summary: ${{ steps.gemini.outputs.has_summary }}
+      prompt_tokens: ${{ steps.gemini.outputs.prompt_tokens }}
+      output_tokens: ${{ steps.gemini.outputs.output_tokens }}
+      total_tokens: ${{ steps.gemini.outputs.total_tokens }}
+
+    steps:
+      - name: Check GEMINI_API_KEY availability
+        id: auth
+        shell: pwsh
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GEMINI_API_KEY)) {
+            Write-Host "::notice::GEMINI_API_KEY secret is not configured. Skipping AI summary."
+            "has_key=false"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "status=skipped_no_key" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+            @(
+              "### Gemini LLM Traceability",
+              "",
+              "- **Status:** ``skipped_no_key`` (``GEMINI_API_KEY`` repository secret is not configured)"
+            ) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            Write-Host "GEMINI_API_KEY detected."
+            "has_key=true"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "status=ready"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Download prompt context artifact
+        if: steps.auth.outputs.has_key == 'true' && github.event_name == 'workflow_call' && inputs.context_artifact != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.context_artifact }}
+          path: ${{ runner.temp }}/ai-inputs
+
+      - name: Resolve prompt input
+        id: prep
+        if: steps.auth.outputs.has_key == 'true'
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CONTEXT_ARTIFACT: ${{ inputs.context_artifact }}
+          PROMPT_FILE: ${{ inputs.prompt_file }}
+          TEST_PROMPT: ${{ inputs.test_prompt }}
+        run: |
+          $promptText = ""
+          if ($env:EVENT_NAME -eq "workflow_call" -and -not [string]::IsNullOrWhiteSpace($env:CONTEXT_ARTIFACT)) {
+            $relPath = if ([string]::IsNullOrWhiteSpace($env:PROMPT_FILE)) { "ai_prompt.txt" } else { $env:PROMPT_FILE }
+            $fullPath = Join-Path (Join-Path $env:RUNNER_TEMP "ai-inputs") $relPath
+            if (-not (Test-Path $fullPath)) {
+              Write-Error "Prompt file not found at '$fullPath'."
+              exit 1
+            }
+            $promptText = Get-Content $fullPath -Raw -Encoding utf8
+          } else {
+            $promptText = $env:TEST_PROMPT
+          }
+
+          if ([string]::IsNullOrWhiteSpace($promptText)) {
+            Write-Error "Resolved prompt text is empty."
+            exit 1
+          }
+
+          $resolvedFile = Join-Path $env:RUNNER_TEMP "ai_prompt_resolved.txt"
+          $promptText | Out-File -FilePath $resolvedFile -Encoding utf8
+          Write-Host "Resolved prompt length: $($promptText.Length) chars"
+
+      - name: Call Gemini API with model fallback chain
+        id: gemini
+        if: steps.auth.outputs.has_key == 'true'
+        shell: pwsh
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MODEL_OVERRIDE: ${{ inputs.model_override }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          $prompt = Get-Content (Join-Path $env:RUNNER_TEMP "ai_prompt_resolved.txt") -Raw -Encoding utf8
+
+          $bodyObj = @{
+            contents = @(@{ parts = @(@{ text = $prompt }) })
+            generationConfig = @{
+              maxOutputTokens = 4096
+              temperature     = 0.2
+            }
+          }
+          $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes(($bodyObj | ConvertTo-Json -Depth 6))
+
+          $override = "$env:MODEL_OVERRIDE".Trim()
+          $models = if ($override) {
+            @($override)
+          } else {
+            @(
+              "gemini-3.8-flash",
+              "gemini-3.7-flash",
+              "gemini-3.6-flash",
+              "gemini-3.5-flash",
+              "gemini-3.1-flash-lite",
+              "gemini-flash-latest"
+            )
+          }
+
+          $attempts = @()
+          $usedModel = ""
+          $aiText = ""
+          $promptTokens = "0"
+          $outputTokens = "0"
+          $totalTokens  = "0"
+
+          foreach ($model in $models) {
+            $uri = "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent"
+            $headers = @{ "x-goog-api-key" = $env:GEMINI_API_KEY }
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+            try {
+              Write-Host "Trying model: $model"
+              $resp = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType "application/json; charset=utf-8" -Body $bodyBytes -TimeoutSec 30 -ErrorAction Stop
+              $sw.Stop()
+              $sec = [Math]::Round($sw.Elapsed.TotalSeconds, 2)
+
+              $parts = @()
+              if ($resp.candidates -and $resp.candidates.Count -gt 0 -and $resp.candidates[0].content.parts) {
+                $parts = $resp.candidates[0].content.parts | Where-Object { -not $_.thought -and -not [string]::IsNullOrWhiteSpace($_.text) }
+              }
+
+              $candidateText = (($parts | ForEach-Object { $_.text }) -join "`n").Trim()
+              if ([string]::IsNullOrWhiteSpace($candidateText)) {
+                Write-Warning "Model $model returned an empty response in ${sec}s."
+                $attempts += "| ``$model`` | Empty response | ${sec}s | - |"
+                continue
+              }
+
+              $aiText = $candidateText
+              $usedModel = $model
+
+              if ($resp.usageMetadata) {
+                $promptTokens = "$($resp.usageMetadata.promptTokenCount)"
+                $outputTokens = "$($resp.usageMetadata.candidatesTokenCount)"
+                $totalTokens  = "$($resp.usageMetadata.totalTokenCount)"
+              }
+
+              $attempts += "| ``$model`` | **200 OK** | ${sec}s | $promptTokens / $outputTokens / $totalTokens |"
+              break
+            } catch {
+              $sw.Stop()
+              $sec = [Math]::Round($sw.Elapsed.TotalSeconds, 2)
+              $statusCode = $null
+              if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+              }
+              $errLabel = if ($statusCode) { "HTTP $statusCode" } else { ($_.Exception.Message -replace '[\r\n\|]+', ' ').Trim() }
+              if ($errLabel.Length -gt 80) { $errLabel = $errLabel.Substring(0, 77) + "..." }
+              Write-Warning "Model $model failed ($errLabel) in ${sec}s."
+              $attempts += "| ``$model`` | $errLabel | ${sec}s | - |"
+            }
+          }
+
+          $summaryLines = @(
+            "### Gemini LLM Traceability",
+            "",
+            "| Model | Outcome | Latency | Tokens (In / Out / Total) |",
+            "| :--- | :--- | ---: | :--- |"
+          ) + $attempts
+
+          if ([string]::IsNullOrWhiteSpace($aiText)) {
+            Write-Host "::warning::All Gemini fallback models failed."
+            "status=failed"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "model="             | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "has_summary=false"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "prompt_tokens=0"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "output_tokens=0"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "total_tokens=0"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+            $summaryLines += ""
+            $summaryLines += "> **Result:** ``failed`` (all candidate models failed or timed out)."
+            $summaryLines -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            exit 0
+          }
+
+          $outDir = Join-Path $env:RUNNER_TEMP "ai-output"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $aiText | Out-File -FilePath (Join-Path $outDir "ai_summary.md") -Encoding utf8
+
+          if ($env:EVENT_NAME -eq "workflow_dispatch") {
+            $summaryLines += ""
+            $summaryLines += "#### Generated Output (``$usedModel``)"
+            $summaryLines += ""
+            $summaryLines += $aiText
+          }
+          $summaryLines -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+          Write-Host "AI summary generated successfully with $usedModel (Tokens: $promptTokens / $outputTokens / $totalTokens)."
+          "status=succeeded"           | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "model=$usedModel"           | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "has_summary=true"           | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "prompt_tokens=$promptTokens" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "output_tokens=$outputTokens" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "total_tokens=$totalTokens"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload AI summary artifact
+        if: steps.gemini.outputs.has_summary == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.output_artifact || 'ai-summary' }}
+          path: ${{ runner.temp }}/ai-output
+          retention-days: 7

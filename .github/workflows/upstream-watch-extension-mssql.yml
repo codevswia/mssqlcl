@@ -19,7 +19,6 @@ on:
         type: string
 
 permissions:
-  issues: write
   contents: read
 
 env:
@@ -28,9 +27,19 @@ env:
   UPSTREAM_LABEL: upstream-sync
 
 jobs:
-  watch-upstream:
-    name: Check vscode-mssql Releases
+  detect-upstream:
+    name: 1. Detect & Compare Upstream
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      latest_tag: ${{ steps.upstream.outputs.latest_tag }}
+      published_at: ${{ steps.upstream.outputs.published_at }}
+      release_url: ${{ steps.upstream.outputs.release_url }}
+      should_open: ${{ steps.check.outputs.should_open }}
+      compare_base: ${{ steps.check.outputs.compare_base }}
+      relevant_count: ${{ steps.compare.outputs.relevant_count }}
 
     steps:
       - name: Fetch latest vscode-mssql release
@@ -40,8 +49,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $headers = @{
-            "User-Agent" = "mssqlcl-upstream-watch"
-            "Accept"     = "application/vnd.github+json"
+            "User-Agent"    = "mssqlcl-upstream-watch"
+            "Accept"        = "application/vnd.github+json"
             "Authorization" = "Bearer $env:GH_TOKEN"
           }
 
@@ -59,25 +68,32 @@ jobs:
           Write-Host "Published at        : $($latest.published_at)"
           Write-Host "Release URL         : $($latest.html_url)"
 
-          "latest_tag=$($latest.tag_name)"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "latest_tag=$($latest.tag_name)"       | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "published_at=$($latest.published_at)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "release_url=$($latest.html_url)"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "release_url=$($latest.html_url)"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          $ctxDir = Join-Path $env:RUNNER_TEMP "upstream-context"
+          New-Item -ItemType Directory -Force -Path $ctxDir | Out-Null
 
           $body = if ($latest.body) { $latest.body } else { "_No release notes provided._" }
           if ($body.Length -gt 25000) {
             $body = $body.Substring(0, 25000) + "`n`n...(truncated)"
           }
-          $body | Out-File -FilePath "$env:RUNNER_TEMP/release_notes.md" -Encoding utf8
+          $body | Out-File -FilePath (Join-Path $ctxDir "release_notes.md") -Encoding utf8
 
       - name: Check if release is already tracked
         id: check
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          LATEST_TAG: ${{ steps.upstream.outputs.latest_tag }}
+          BASELINE_OVERRIDE: ${{ github.event.inputs.baseline_override }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          $latestTag = "${{ steps.upstream.outputs.latest_tag }}"
-          $override  = "${{ github.event.inputs.baseline_override }}".Trim()
-          $isDryRun  = "${{ github.event.inputs.dry_run }}" -eq "true"
+          $latestTag = $env:LATEST_TAG
+          $override  = "$env:BASELINE_OVERRIDE".Trim()
+          $isDryRun  = $env:DRY_RUN -eq "true"
 
           Write-Host "Baseline tag : $env:BASELINE_TAG"
           Write-Host "Latest tag   : $latestTag"
@@ -89,7 +105,7 @@ jobs:
             "Authorization" = "Bearer $env:GH_TOKEN"
           }
 
-          $issues = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/issues?state=all&labels=$env:UPSTREAM_LABEL&per_page=50" -Headers $headers
+          $issues = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPO/issues?state=all&labels=$env:UPSTREAM_LABEL&per_page=50" -Headers $headers
           $trackedTags = @()
           foreach ($iss in $issues) {
             if ($iss.title -match '(mssql-v\d+\.\d+\.\d+[^\s\]]*)') {
@@ -98,7 +114,7 @@ jobs:
           }
 
           $alreadyTracked = ($latestTag -eq $env:BASELINE_TAG) -or ($trackedTags -contains $latestTag)
-          $shouldOpen = (-not $alreadyTracked) -or $isDryRun
+          $shouldOpen = ((-not $alreadyTracked) -or $isDryRun).ToString().ToLowerInvariant()
 
           $compareBase = if ($override) {
             $override
@@ -112,8 +128,9 @@ jobs:
           Write-Host "Compare base    : $compareBase"
           Write-Host "Should proceed  : $shouldOpen"
 
-          "should_open=$shouldOpen"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "compare_base=$compareBase" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "should_open=$shouldOpen"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "compare_base=$compareBase"       | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "already_tracked=$alreadyTracked" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Compare relevant MCP and connection paths
         id: compare
@@ -121,9 +138,11 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPARE_BASE: ${{ steps.check.outputs.compare_base }}
+          LATEST_TAG: ${{ steps.upstream.outputs.latest_tag }}
         run: |
-          $baseTag   = "${{ steps.check.outputs.compare_base }}"
-          $latestTag = "${{ steps.upstream.outputs.latest_tag }}"
+          $baseTag   = $env:COMPARE_BASE
+          $latestTag = $env:LATEST_TAG
 
           $headers = @{
             "User-Agent"    = "mssqlcl-upstream-watch"
@@ -162,35 +181,175 @@ jobs:
             }
           }
 
-          Write-Host "Relevant file count: $($relevantFiles.Count)"
-          $summary | Out-File -FilePath "$env:RUNNER_TEMP/relevant_files.md" -Encoding utf8
+          $ctxDir = Join-Path $env:RUNNER_TEMP "upstream-context"
+          New-Item -ItemType Directory -Force -Path $ctxDir | Out-Null
+          $summary | Out-File -FilePath (Join-Path $ctxDir "relevant_files.md") -Encoding utf8
 
-      - name: Create upstream-sync Issue (or dry-run log)
+          Write-Host "Relevant file count: $($relevantFiles.Count)"
+          "relevant_count=$($relevantFiles.Count)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build AI prompt from release notes and changed paths
         if: steps.check.outputs.should_open == 'true'
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST_TAG: ${{ steps.upstream.outputs.latest_tag }}
+          COMPARE_BASE: ${{ steps.check.outputs.compare_base }}
         run: |
-          $latestTag    = "${{ steps.upstream.outputs.latest_tag }}"
-          $compareBase  = "${{ steps.check.outputs.compare_base }}"
-          $publishedAt  = "${{ steps.upstream.outputs.published_at }}"
-          $releaseUrl   = "${{ steps.upstream.outputs.release_url }}"
-          $releaseNotes = Get-Content "$env:RUNNER_TEMP/release_notes.md" -Raw -Encoding utf8
-          $relevantList = Get-Content "$env:RUNNER_TEMP/relevant_files.md" -Raw -Encoding utf8
+          $ctxDir       = Join-Path $env:RUNNER_TEMP "upstream-context"
+          $releaseNotes = Get-Content (Join-Path $ctxDir "release_notes.md") -Raw -Encoding utf8
+          $relevantList = Get-Content (Join-Path $ctxDir "relevant_files.md") -Raw -Encoding utf8
 
-          $title = "[upstream-sync] vscode-mssql $latestTag"
+          if ($releaseNotes.Length -gt 8000) {
+            $releaseNotes = $releaseNotes.Substring(0, 8000) + "`n...(truncated)"
+          }
+
+          $prompt = @(
+            "Eres un asistente tecnico para el proyecto mssqlcl (CLI y servidor MCP en .NET 10 para SQL Server).",
+            "Analiza esta nueva release de $env:UPSTREAM_REPO ($env:LATEST_TAG, comparada contra $env:COMPARE_BASE).",
+            "",
+            "Responde en español usando Markdown limpio y conciso con estas 3 secciones exactas:",
+            "### Cambios relevantes para mssqlcl",
+            "(Max. 5 bullets cortos sobre herramientas MCP, prompts, Auth/Azure, consultas, schemas o conexiones utiles para inspirar o portar a mssqlcl. Si no hay nada relevante en codigo, dilo brevemente.)",
+            "",
+            "### Cambios solo de UI (VS Code)",
+            "(1 linea resumiendo lo que se descarta por ser exclusivo de interfaz grafica de VS Code.)",
+            "",
+            "### Recomendacion",
+            "(Si o No conviene priorizar revisarlo en mssqlcl + 1 frase explicando que area o archivo revisar primero.)",
+            "",
+            "Archivos MCP/Connection modificados ($env:COMPARE_BASE...$env:LATEST_TAG):",
+            $relevantList,
+            "",
+            "Release notes ($env:LATEST_TAG):",
+            $releaseNotes
+          ) -join "`n"
+
+          $prompt | Out-File -FilePath (Join-Path $ctxDir "ai_prompt.txt") -Encoding utf8
+          Write-Host "Prepared ai_prompt.txt ($($prompt.Length) chars)"
+
+      - name: Write upstream detection summary
+        shell: pwsh
+        env:
+          LATEST_TAG: ${{ steps.upstream.outputs.latest_tag }}
+          RELEASE_URL: ${{ steps.upstream.outputs.release_url }}
+          COMPARE_BASE: ${{ steps.check.outputs.compare_base }}
+          ALREADY_TRACKED: ${{ steps.check.outputs.already_tracked }}
+          SHOULD_OPEN: ${{ steps.check.outputs.should_open }}
+          RELEVANT_COUNT: ${{ steps.compare.outputs.relevant_count }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          $relCount = if ([string]::IsNullOrWhiteSpace($env:RELEVANT_COUNT)) { "-" } else { $env:RELEVANT_COUNT }
+          @(
+            "### Upstream Detection Traceability",
+            "",
+            "| Field | Value |",
+            "| :--- | :--- |",
+            "| Upstream Repo | ``$env:UPSTREAM_REPO`` |",
+            "| Latest Stable Release | [``$env:LATEST_TAG``]($env:RELEASE_URL) |",
+            "| Baseline / Compare Base | ``$env:BASELINE_TAG`` / ``$env:COMPARE_BASE`` |",
+            "| Already Tracked | ``$env:ALREADY_TRACKED`` |",
+            "| Relevant MCP/Conn Files | ``$relCount`` |",
+            "| Dry Run | ``$($env:DRY_RUN -eq 'true')`` |",
+            "| Proceed to AI & Issue | ``$env:SHOULD_OPEN`` |"
+          ) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload upstream context artifact
+        if: steps.check.outputs.should_open == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-context
+          path: ${{ runner.temp }}/upstream-context
+          retention-days: 7
+
+  ai-analysis:
+    name: 2. AI Analysis (Gemini)
+    needs: detect-upstream
+    if: needs.detect-upstream.outputs.should_open == 'true'
+    uses: ./.github/workflows/ai-gemini-summarize.yml
+    with:
+      context_artifact: upstream-context
+      prompt_file: ai_prompt.txt
+      output_artifact: ai-summary
+    secrets: inherit
+
+  publish-issue:
+    name: 3. Publish Upstream-Sync Issue
+    needs: [detect-upstream, ai-analysis]
+    if: always() && needs.detect-upstream.result == 'success' && needs.detect-upstream.outputs.should_open == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Download upstream context artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: upstream-context
+          path: ${{ runner.temp }}/issue-inputs
+
+      - name: Download AI summary artifact
+        if: needs.ai-analysis.result == 'success' && needs.ai-analysis.outputs.has_summary == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: ai-summary
+          path: ${{ runner.temp }}/issue-inputs
+
+      - name: Assemble Issue Markdown body
+        shell: pwsh
+        env:
+          LATEST_TAG: ${{ needs.detect-upstream.outputs.latest_tag }}
+          COMPARE_BASE: ${{ needs.detect-upstream.outputs.compare_base }}
+          PUBLISHED_AT: ${{ needs.detect-upstream.outputs.published_at }}
+          RELEASE_URL: ${{ needs.detect-upstream.outputs.release_url }}
+          AI_STATUS: ${{ needs.ai-analysis.outputs.ai_status }}
+          AI_MODEL: ${{ needs.ai-analysis.outputs.ai_model }}
+          PROMPT_TOKENS: ${{ needs.ai-analysis.outputs.prompt_tokens }}
+          OUTPUT_TOKENS: ${{ needs.ai-analysis.outputs.output_tokens }}
+          TOTAL_TOKENS: ${{ needs.ai-analysis.outputs.total_tokens }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          $inDir         = Join-Path $env:RUNNER_TEMP "issue-inputs"
+          $releaseNotes  = (Get-Content (Join-Path $inDir "release_notes.md") -Raw -Encoding utf8).Trim()
+          $relevantList  = (Get-Content (Join-Path $inDir "relevant_files.md") -Raw -Encoding utf8).Trim()
+          $aiSummaryFile = Join-Path $inDir "ai_summary.md"
+
+          $aiSection = if (Test-Path $aiSummaryFile) {
+            $aiText = (Get-Content $aiSummaryFile -Raw -Encoding utf8).Trim()
+            @(
+              "## AI Summary (``$env:AI_MODEL``)",
+              "",
+              $aiText
+            ) -join "`n"
+          } elseif ($env:AI_STATUS -eq "skipped_no_key") {
+            "_AI summary skipped (``GEMINI_API_KEY`` repository secret is not configured)._"
+          } else {
+            "_AI summary unavailable for this run (Gemini API fallback chain did not return a response)._"
+          }
+
+          $traceFooter = if ($env:AI_MODEL) {
+            "_Generated by [Run #$env:RUN_NUMBER]($env:RUN_URL) · AI Model: ``$env:AI_MODEL`` · Tokens (in/out/total): ``$env:PROMPT_TOKENS/$env:OUTPUT_TOKENS/$env:TOTAL_TOKENS``_"
+          } else {
+            "_Generated by [Run #$env:RUN_NUMBER]($env:RUN_URL) · AI Status: ``$env:AI_STATUS``_"
+          }
+
           $issueBody = @(
             "## Upstream Release Detected",
             "",
             "- **Repository:** ``$env:UPSTREAM_REPO``",
-            "- **New Release:** [``$latestTag``]($releaseUrl) (published ``$publishedAt``)",
-            "- **Compared Against:** ``$compareBase``",
+            "- **New Release:** [``$env:LATEST_TAG``]($env:RELEASE_URL) (published ``$env:PUBLISHED_AT``)",
+            "- **Compared Against:** ``$env:COMPARE_BASE``",
             "",
             "---",
             "",
-            "## Relevant MCP / Connection Changes (``$compareBase...$latestTag``)",
+            $aiSection,
             "",
-            "$relevantList",
+            "---",
+            "",
+            "## Relevant MCP / Connection Changes (``$env:COMPARE_BASE...$env:LATEST_TAG``)",
+            "",
+            $relevantList,
             "",
             "---",
             "",
@@ -204,36 +363,84 @@ jobs:
             "---",
             "",
             "<details>",
-            "<summary>Upstream Release Notes ($latestTag)</summary>",
+            "<summary>Upstream Release Notes ($env:LATEST_TAG)</summary>",
             "",
-            "$releaseNotes",
+            $releaseNotes,
             "",
-            "</details>"
+            "</details>",
+            "",
+            "---",
+            "",
+            $traceFooter
           ) -join "`n"
 
-          if ("${{ github.event.inputs.dry_run }}" -eq "true") {
-            Write-Host "=== DRY RUN: Would create Issue '$title' ==="
-            Write-Host $issueBody
-            exit 0
-          }
+          $issueBody | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "issue_body.md") -Encoding utf8
 
+      - name: Preview Issue body (Dry Run)
+        if: github.event.inputs.dry_run == 'true'
+        shell: pwsh
+        env:
+          LATEST_TAG: ${{ needs.detect-upstream.outputs.latest_tag }}
+          AI_STATUS: ${{ needs.ai-analysis.outputs.ai_status }}
+          AI_MODEL: ${{ needs.ai-analysis.outputs.ai_model }}
+        run: |
+          $title = "[upstream-sync] vscode-mssql $env:LATEST_TAG"
+          $issueBody = Get-Content (Join-Path $env:RUNNER_TEMP "issue_body.md") -Raw -Encoding utf8
+          Write-Host "=== DRY RUN: Would create Issue '$title' ==="
+          Write-Host "AI Status: $env:AI_STATUS | AI Model: $env:AI_MODEL"
+          Write-Host ""
+          Write-Host $issueBody
+
+          @(
+            "### Issue Publishing Traceability",
+            "",
+            "- **Mode:** ``dry_run`` (no Issue created)",
+            "- **Would Title:** ``$title``",
+            "- **AI Status:** ``$env:AI_STATUS`` (``$env:AI_MODEL``)"
+          ) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Ensure upstream-sync label exists
+        if: github.event.inputs.dry_run != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: |
           $headers = @{
             "User-Agent"    = "mssqlcl-upstream-watch"
             "Accept"        = "application/vnd.github+json"
             "Authorization" = "Bearer $env:GH_TOKEN"
           }
 
-          # Ensure the 'upstream-sync' label exists before creating the issue
           try {
-            Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/labels/$env:UPSTREAM_LABEL" -Headers $headers | Out-Null
+            Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPO/labels/$env:UPSTREAM_LABEL" -Headers $headers | Out-Null
           } catch {
             $labelPayload = @{
               name        = $env:UPSTREAM_LABEL
               color       = "1d76db"
               description = "Upstream vscode-mssql release or MCP change to evaluate"
             } | ConvertTo-Json
-            Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/${{ github.repository }}/labels" -Headers $headers -Body $labelPayload -ContentType "application/json; charset=utf-8" | Out-Null
+            Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GITHUB_REPO/labels" -Headers $headers -Body $labelPayload -ContentType "application/json; charset=utf-8" | Out-Null
           }
+
+      - name: Create upstream-sync GitHub Issue
+        if: github.event.inputs.dry_run != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          LATEST_TAG: ${{ needs.detect-upstream.outputs.latest_tag }}
+          AI_STATUS: ${{ needs.ai-analysis.outputs.ai_status }}
+          AI_MODEL: ${{ needs.ai-analysis.outputs.ai_model }}
+        run: |
+          $headers = @{
+            "User-Agent"    = "mssqlcl-upstream-watch"
+            "Accept"        = "application/vnd.github+json"
+            "Authorization" = "Bearer $env:GH_TOKEN"
+          }
+
+          $title = "[upstream-sync] vscode-mssql $env:LATEST_TAG"
+          $issueBody = Get-Content (Join-Path $env:RUNNER_TEMP "issue_body.md") -Raw -Encoding utf8
 
           $payload = @{
             title  = $title
@@ -241,5 +448,12 @@ jobs:
             labels = @($env:UPSTREAM_LABEL)
           } | ConvertTo-Json -Depth 4
 
-          $created = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/${{ github.repository }}/issues" -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -ContentType "application/json; charset=utf-8"
+          $created = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GITHUB_REPO/issues" -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -ContentType "application/json; charset=utf-8"
           Write-Host "Created Issue #$($created.number): $($created.html_url)"
+
+          @(
+            "### Issue Publishing Traceability",
+            "",
+            "- **Created Issue:** [#$($created.number) - $title]($($created.html_url))",
+            "- **AI Status:** ``$env:AI_STATUS`` (``$env:AI_MODEL``)"
+          ) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
