@@ -41,7 +41,7 @@ public sealed class CliHandler
 
         if (HasFlag(args, "--version") || HasFlag(args, "-V"))
         {
-            Console.WriteLine("mssqlcl 1.0.0");
+            Console.WriteLine($"mssqlcl {Program.GetVersion()}");
             return 0;
         }
 
@@ -242,7 +242,7 @@ public sealed class CliHandler
     {
         Console.WriteLine("mssqlcl doctor");
         Console.WriteLine(new string('-', 60));
-        Console.WriteLine($"Version      : 1.0.0");
+        Console.WriteLine($"Version      : {Program.GetVersion()}");
         Console.WriteLine($"Executable   : {Environment.ProcessPath ?? "unknown"}");
         Console.WriteLine($"OS / Arch    : {RuntimeInformation.OSDescription.Trim()} ({RuntimeInformation.OSArchitecture})");
         Console.WriteLine($"Runtime      : .NET {Environment.Version}");
