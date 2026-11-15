@@ -103,7 +103,7 @@ jobs:
           "$hash  $zipName" | Out-File -FilePath "dist/checksums.txt" -Encoding ascii
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.release_tag }}
           generate_release_notes: true
