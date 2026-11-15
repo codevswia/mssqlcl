@@ -1,6 +1,6 @@
 # mssqlcl
 
-**SQL Server MCP Server & CLI** modeled after **Oracle SQLcl (`sql -mcp`)** and compatible with the **VS Code / Antigravity IDE SQL Server (`ms-mssql.mssql`)** connection store.
+**SQL Server MCP Server & CLI** with zero-config discovery for the **VS Code / Antigravity IDE SQL Server (`ms-mssql.mssql`)** connection store.
 
 Configure your SQL Server connections once in VS Code, Antigravity IDE, or via `mssqlcl conn save`, and use them from any external MCP client (Antigravity, Claude Desktop, Claude Code, Cursor, etc.) over `stdio`.
 
@@ -28,7 +28,7 @@ Configure your SQL Server connections once in VS Code, Antigravity IDE, or via `
   - `mssql_list_views`
   - `mssql_list_functions`
   - `mssql_run_query`
-- **SQLcl-inspired ergonomics & safety:**
+- **Ergonomics & safety:**
   - Compact **CSV** output by default (optional `json`) to reduce LLM token usage, with `--max-rows` capping (default `500`).
   - **`--readonly` by default:** T-SQL lexical guard skips comments, string literals, and quoted identifiers while blocking DML/DDL/execution keywords (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `EXEC`, `SELECT ... INTO`, etc.).
   - **Local JSONL audit log** at `%USERPROFILE%\.mssqlcl\audit.log` (never creates tables inside target databases and never logs credentials).
@@ -46,7 +46,7 @@ Configure your SQL Server connections once in VS Code, Antigravity IDE, or via `
 
 ## Installation
 
-### Option 1: Portable ZIP (Offline / Oracle SQLcl-style — Recommended)
+### Option 1: Portable ZIP (Offline — Recommended)
 
 1. Download `mssqlcl-vX.Y.Z-win-x64.zip` from [GitHub Releases](https://github.com/codevswia/mssqlcl/releases).
 2. Extract it anywhere (for example `C:\tools\mssqlcl\`).

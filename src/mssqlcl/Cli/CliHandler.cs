@@ -362,7 +362,7 @@ public sealed class CliHandler
     private static void PrintUsage()
     {
         Console.WriteLine("""
-            mssqlcl - SQL Server MCP Server & CLI (inspired by Oracle SQLcl)
+            mssqlcl - SQL Server MCP Server & CLI
 
             USAGE:
               mssqlcl --mcp [options]                 Start MCP server over stdio

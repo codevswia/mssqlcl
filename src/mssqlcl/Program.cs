@@ -61,7 +61,7 @@ public static class Program
                     Version = "1.0.0"
                 };
                 serverOpts.ServerInstructions =
-                    "SQL Server MCP server modeled after Oracle SQLcl and ms-mssql. " +
+                    "SQL Server MCP server with VS Code and Antigravity IDE connection discovery. " +
                     "Call mssql_list_servers first to discover saved connections, then mssql_connect to obtain a connectionId. " +
                     "Query results are returned in compact CSV by default. Always call mssql_disconnect when finished.";
             })

@@ -13,7 +13,7 @@ using MssqlCl.Security;
 namespace MssqlCl.Mcp;
 
 /// <summary>
-/// Exposes the 11 SQL Server database MCP tools modeled after ms-mssql.mssql and Oracle SQLcl.
+/// Exposes the 11 SQL Server database MCP tools.
 /// </summary>
 [McpServerToolType]
 public sealed class MssqlTools
