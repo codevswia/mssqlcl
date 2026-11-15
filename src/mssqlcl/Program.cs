@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
@@ -58,7 +59,7 @@ public static class Program
                 {
                     Name = "mssqlcl",
                     Title = "SQL Server MCP Server (mssqlcl)",
-                    Version = "1.0.0"
+                    Version = GetVersion()
                 };
                 serverOpts.ServerInstructions =
                     "SQL Server MCP server with VS Code and Antigravity IDE connection discovery. " +
@@ -108,5 +109,19 @@ public static class Program
             }
         }
         return opts;
+    }
+
+    internal static string GetVersion()
+    {
+        var info = typeof(Program).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+
+        if (!string.IsNullOrWhiteSpace(info))
+        {
+            return info.Split('+')[0];
+        }
+
+        return typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
     }
 }
