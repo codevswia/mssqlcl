@@ -69,7 +69,7 @@ jobs:
     name: Gemini LLM Summarize
     runs-on: ubuntu-latest
     outputs:
-      ai_status: ${{ steps.gemini.outputs.status || steps.auth.outputs.status }}
+      ai_status: ${{ steps.gemini.outputs.status || steps.auth.outputs.status || 'failed' }}
       ai_model: ${{ steps.gemini.outputs.model }}
       has_summary: ${{ steps.gemini.outputs.has_summary }}
       prompt_tokens: ${{ steps.gemini.outputs.prompt_tokens }}
@@ -96,11 +96,10 @@ jobs:
           } else {
             Write-Host "GEMINI_API_KEY detected."
             "has_key=true"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            "status=ready"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           }
 
       - name: Download prompt context artifact
-        if: steps.auth.outputs.has_key == 'true' && github.event_name == 'workflow_call' && inputs.context_artifact != ''
+        if: steps.auth.outputs.has_key == 'true' && inputs.context_artifact != ''
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.context_artifact }}
@@ -111,13 +110,12 @@ jobs:
         if: steps.auth.outputs.has_key == 'true'
         shell: pwsh
         env:
-          EVENT_NAME: ${{ github.event_name }}
           CONTEXT_ARTIFACT: ${{ inputs.context_artifact }}
           PROMPT_FILE: ${{ inputs.prompt_file }}
           TEST_PROMPT: ${{ inputs.test_prompt }}
         run: |
           $promptText = ""
-          if ($env:EVENT_NAME -eq "workflow_call" -and -not [string]::IsNullOrWhiteSpace($env:CONTEXT_ARTIFACT)) {
+          if (-not [string]::IsNullOrWhiteSpace($env:CONTEXT_ARTIFACT)) {
             $relPath = if ([string]::IsNullOrWhiteSpace($env:PROMPT_FILE)) { "ai_prompt.txt" } else { $env:PROMPT_FILE }
             $fullPath = Join-Path (Join-Path $env:RUNNER_TEMP "ai-inputs") $relPath
             if (-not (Test-Path $fullPath)) {
@@ -145,7 +143,6 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           MODEL_OVERRIDE: ${{ inputs.model_override }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           $prompt = Get-Content (Join-Path $env:RUNNER_TEMP "ai_prompt_resolved.txt") -Raw -Encoding utf8
 
@@ -253,12 +250,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
           $aiText | Out-File -FilePath (Join-Path $outDir "ai_summary.md") -Encoding utf8
 
-          if ($env:EVENT_NAME -eq "workflow_dispatch") {
-            $summaryLines += ""
-            $summaryLines += "#### Generated Output (``$usedModel``)"
-            $summaryLines += ""
-            $summaryLines += $aiText
-          }
+          $summaryLines += ""
+          $summaryLines += "#### Generated Output (``$usedModel``)"
+          $summaryLines += ""
+          $summaryLines += $aiText
           $summaryLines -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
           Write-Host "AI summary generated successfully with $usedModel (Tokens: $promptTokens / $outputTokens / $totalTokens)."
