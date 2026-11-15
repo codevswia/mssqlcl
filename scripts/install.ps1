@@ -18,14 +18,26 @@ $ErrorActionPreference = "Stop"
 
 function Add-ToUserPath {
     param([string]$Dir)
+    $normalized = $Dir.TrimEnd('\')
     $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    $segments = if ($currentPath) { $currentPath -split ";" | Where-Object { $_ -ne "" } } else { @() }
-    if ($segments -notcontains $Dir) {
-        $newPath = ($segments + $Dir) -join ";"
-        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-        Write-Host "Added '$Dir' to User PATH. Restart your terminal/IDE to pick up the change." -ForegroundColor Green
+    $segments = if ($currentPath) {
+        $currentPath -split ";" | Where-Object { $_ -ne "" } | ForEach-Object { $_.TrimEnd('\') }
     } else {
-        Write-Host "'$Dir' is already in User PATH." -ForegroundColor Green
+        @()
+    }
+
+    if ($segments -notcontains $normalized) {
+        $rawSegments = if ($currentPath) { $currentPath -split ";" | Where-Object { $_ -ne "" } } else { @() }
+        $newPath = ($rawSegments + $normalized) -join ";"
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+        Write-Host "      Added '$normalized' to User PATH (no Admin required)." -ForegroundColor Green
+    } else {
+        Write-Host "      '$normalized' is already in User PATH." -ForegroundColor Green
+    }
+
+    $sessionSegments = ($env:Path -split ";") | Where-Object { $_ -ne "" } | ForEach-Object { $_.TrimEnd('\') }
+    if ($sessionSegments -notcontains $normalized) {
+        $env:Path = "$($env:Path.TrimEnd(';'));$normalized"
     }
 }
 
@@ -34,10 +46,11 @@ function Show-Completion {
     $exePath = Join-Path $Dir "mssqlcl.exe"
     if (Test-Path $exePath) {
         $ver = & $exePath --version
-        Write-Host "Verified: $ver" -ForegroundColor Green
+        Write-Host "      Verified: $ver" -ForegroundColor Green
     }
     Write-Host ""
-    Write-Host "Installation complete. Example MCP client configuration:" -ForegroundColor Cyan
+    Write-Host "Installation complete. Restart your IDE if it was already open so it picks up the updated PATH." -ForegroundColor Cyan
+    Write-Host "Example MCP client configuration:" -ForegroundColor Cyan
     Write-Host @"
 {
   "mcpServers": {
@@ -56,12 +69,18 @@ function Install-FromExtractedDir {
     if (-not (Test-Path $exeSource)) {
         throw "mssqlcl.exe not found inside '$SourceDir'."
     }
+
+    $resolvedSource = (Resolve-Path $SourceDir).Path.TrimEnd('\')
     New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
-    Copy-Item -Path $exeSource -Destination (Join-Path $TargetDir "mssqlcl.exe") -Force
-    foreach ($doc in @("README.md", "LICENSE")) {
-        $docPath = Join-Path $SourceDir $doc
-        if (Test-Path $docPath) {
-            Copy-Item -Path $docPath -Destination (Join-Path $TargetDir $doc) -Force
+    $resolvedTarget = (Resolve-Path $TargetDir).Path.TrimEnd('\')
+
+    if ($resolvedSource -ine $resolvedTarget) {
+        Copy-Item -Path $exeSource -Destination (Join-Path $resolvedTarget "mssqlcl.exe") -Force
+        foreach ($doc in @("README.md", "LICENSE")) {
+            $docPath = Join-Path $resolvedSource $doc
+            if (Test-Path $docPath) {
+                Copy-Item -Path $docPath -Destination (Join-Path $resolvedTarget $doc) -Force
+            }
         }
     }
 }
@@ -69,14 +88,20 @@ function Install-FromExtractedDir {
 if ($FromSource) {
     $repoRoot = Split-Path -Parent $PSScriptRoot
     $projectPath = Join-Path $repoRoot "src\mssqlcl\mssqlcl.csproj"
+
+    Write-Host "[1/4] Checking .NET 10 SDK and source project..." -ForegroundColor Cyan
     if (-not (Test-Path $projectPath)) {
         throw "Project file not found at $projectPath"
     }
     if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-        throw ".NET SDK is required for -FromSource. Install .NET 10 SDK or omit -FromSource to install a prebuilt release."
+        throw ".NET 10 SDK is required for -FromSource. Install it from https://dotnet.microsoft.com/download/dotnet/10.0 or omit -FromSource to install a prebuilt release."
+    }
+    $sdks = & dotnet --list-sdks 2>$null
+    if (-not ($sdks | Where-Object { $_ -match '^10\.' })) {
+        throw ".NET 10 SDK (10.x) was not found in 'dotnet --list-sdks'. Install .NET 10 SDK from https://dotnet.microsoft.com/download/dotnet/10.0 or use the prebuilt self-contained ZIP."
     }
 
-    Write-Host "Publishing mssqlcl from source to '$InstallDir'..." -ForegroundColor Cyan
+    Write-Host "[2/4] Publishing mssqlcl from source to '$InstallDir'..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     $publishArgs = @(
         "publish", $projectPath,
@@ -97,7 +122,10 @@ if ($FromSource) {
         throw "dotnet publish failed with exit code $LASTEXITCODE"
     }
 
+    Write-Host "[3/4] Updating User PATH..." -ForegroundColor Cyan
     Add-ToUserPath -Dir $InstallDir
+
+    Write-Host "[4/4] Verifying installation..." -ForegroundColor Cyan
     Show-Completion -Dir $InstallDir
     return
 }
@@ -108,10 +136,10 @@ New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 try {
     $zipToExtract = $LocalZip
     if ($zipToExtract) {
+        Write-Host "[1/4] Checking local ZIP '$zipToExtract'..." -ForegroundColor Cyan
         if (-not (Test-Path $zipToExtract)) {
             throw "Local ZIP not found at '$zipToExtract'."
         }
-        Write-Host "Installing mssqlcl from local ZIP '$zipToExtract'..." -ForegroundColor Cyan
     } else {
         $releaseApi = if ($Version -eq "latest") {
             "https://api.github.com/repos/$Repo/releases/latest"
@@ -119,7 +147,7 @@ try {
             "https://api.github.com/repos/$Repo/releases/tags/$Version"
         }
 
-        Write-Host "Fetching release metadata from $Repo ($Version)..." -ForegroundColor Cyan
+        Write-Host "[1/4] Fetching release metadata and downloading from $Repo ($Version)..." -ForegroundColor Cyan
         $headers = @{ "User-Agent" = "mssqlcl-installer" }
         $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers
         $zipAsset = $release.assets | Where-Object { $_.name -like "*-win-x64.zip" } | Select-Object -First 1
@@ -128,7 +156,7 @@ try {
         }
 
         $zipToExtract = Join-Path $tempDir $zipAsset.name
-        Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
+        Write-Host "      Downloading $($zipAsset.name)..." -ForegroundColor DarkGray
         Invoke-WebRequest -Uri $zipAsset.browser_download_url -OutFile $zipToExtract -Headers $headers
 
         $checksumAsset = $release.assets | Where-Object { $_.name -eq "checksums.txt" } | Select-Object -First 1
@@ -142,15 +170,20 @@ try {
                 if ($expectedHash -ne $actualHash) {
                     throw "SHA-256 checksum mismatch for $($zipAsset.name). Expected $expectedHash, got $actualHash."
                 }
-                Write-Host "SHA-256 checksum verified." -ForegroundColor Green
+                Write-Host "      SHA-256 checksum verified." -ForegroundColor Green
             }
         }
     }
 
+    Write-Host "[2/4] Extracting and installing to '$InstallDir'..." -ForegroundColor Cyan
     $extractDir = Join-Path $tempDir "extracted"
     Expand-Archive -Path $zipToExtract -DestinationPath $extractDir -Force
     Install-FromExtractedDir -SourceDir $extractDir -TargetDir $InstallDir
+
+    Write-Host "[3/4] Updating User PATH..." -ForegroundColor Cyan
     Add-ToUserPath -Dir $InstallDir
+
+    Write-Host "[4/4] Verifying installation..." -ForegroundColor Cyan
     Show-Completion -Dir $InstallDir
 }
 finally {
