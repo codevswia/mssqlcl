@@ -1,0 +1,9 @@
+# Default code owners for all files
+* @codevswia/maintainers
+
+# CI/CD workflows and governance files require maintainer review
+/.github/ @codevswia/maintainers
+
+# Dependency automation and project dependencies
+/.github/dependabot.yml @codevswia/security-deps @codevswia/maintainers
+*.csproj @codevswia/security-deps @codevswia/maintainers

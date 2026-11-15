@@ -1,0 +1,106 @@
+name: CI - Build & Test
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: Detect Code Changes
+    runs-on: ubuntu-latest
+    outputs:
+      run_tests: ${{ steps.filter.outputs.run_tests }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check if .NET code or CI workflow changed
+        id: filter
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "No valid base SHA; running tests."
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE_SHA" "${{ github.sha }}")
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          if echo "$CHANGED" | grep -qE '^(src/|tests/|.*\.sln$|.*\.csproj$|global\.json$|Directory\.(Build|Packages)\.props$|\.github/workflows/ci-build-test\.yml$)'; then
+            echo "Code or CI workflow changes detected -> run_tests=true"
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Docs/metadata only -> skipping .NET build & test"
+            echo "run_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-test:
+    name: Build & Test (win-x64)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.run_tests == 'true'
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build (Release)
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run unit tests
+        run: dotnet test --no-build --configuration Release --verbosity normal
+
+  ci-gate:
+    name: CI Gate
+    needs: [detect-changes, build-and-test]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Evaluate CI status
+        shell: bash
+        run: |
+          if [ "${{ needs.detect-changes.result }}" != "success" ]; then
+            echo "detect-changes failed (${{ needs.detect-changes.result }})"
+            exit 1
+          fi
+
+          if [ "${{ needs.detect-changes.outputs.run_tests }}" = "true" ]; then
+            if [ "${{ needs.build-and-test.result }}" != "success" ]; then
+              echo "build-and-test failed (${{ needs.build-and-test.result }})"
+              exit 1
+            fi
+            echo "CI Gate passed: .NET build & tests succeeded."
+          else
+            echo "CI Gate passed: docs/metadata-only change (.NET build & tests skipped)."
+          fi

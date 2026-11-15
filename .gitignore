@@ -3,6 +3,10 @@ bin/
 obj/
 publish/
 out/
+dist/
+artifacts/
+*.zip
+*.nupkg
 
 # IDE / User-specific files
 .vs/
@@ -21,3 +25,5 @@ out/
 *.pfx
 *.snk
 TestResults/
+coverage.*.xml
+.mssqlcl/
