@@ -62,6 +62,7 @@ jobs:
           Copy-Item "README.md" "$stage/README.md"
           Copy-Item "LICENSE" "$stage/LICENSE"
           Copy-Item "scripts/install-local.ps1" "$stage/install-local.ps1"
+          Copy-Item "scripts/install.cmd" "$stage/install.cmd"
 
           $zipName = "mssqlcl-${{ env.RELEASE_TAG }}-win-x64.zip"
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/$zipName" -Force

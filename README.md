@@ -50,11 +50,9 @@ Configure your SQL Server connections once in VS Code, Antigravity IDE, or via `
 
 1. Download `mssqlcl-vX.Y.Z-win-x64.zip` from [GitHub Releases](https://github.com/codevswia/mssqlcl/releases).
 2. Extract it anywhere (for example `C:\tools\mssqlcl\`).
-3. Either run `mssqlcl.exe` directly, or run the included offline installer to copy it to `%LOCALAPPDATA%\Programs\mssqlcl` and add it to your User `PATH`:
-
-```powershell
-.\install-local.ps1
-```
+3. Choose how you want to run it:
+   - **Portable (zero system changes):** Point your MCP config directly to `C:\tools\mssqlcl\mssqlcl.exe` (no `PATH` changes).
+   - **Install to User `PATH` (no Admin required):** Double-click `install.cmd` (or run `powershell -ExecutionPolicy Bypass -File .\install-local.ps1`) to copy `mssqlcl.exe` to `%LOCALAPPDATA%\Programs\mssqlcl` and add it to your User `PATH`. Restart your IDE afterwards if it was already open.
 
 ### Option 2: One-Command Online Installer (PowerShell, no .NET SDK required)
 
@@ -62,9 +60,9 @@ Configure your SQL Server connections once in VS Code, Antigravity IDE, or via `
 irm https://raw.githubusercontent.com/codevswia/mssqlcl/main/scripts/install.ps1 | iex
 ```
 
-*(You can also install a downloaded ZIP via `.\scripts\install.ps1 -LocalZip path\to\mssqlcl-vX.Y.Z-win-x64.zip`.)*
+*(Installs the latest release ZIP to `%LOCALAPPDATA%\Programs\mssqlcl` and updates User `PATH`. You can also install a manually downloaded ZIP offline via `.\scripts\install.ps1 -LocalZip path\to\mssqlcl-vX.Y.Z-win-x64.zip`.)*
 
-### Option 3: Build & Install from Source
+### Option 3: Build & Install from Source (requires .NET 10 SDK)
 
 ```powershell
 # Build & run unit tests
