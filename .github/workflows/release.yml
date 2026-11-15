@@ -1,4 +1,5 @@
-name: Release
+name: CD - Build & Release
+run-name: Release ${{ github.event.inputs.tag || github.ref_name }} (${{ github.event_name }})
 
 on:
   push:
@@ -28,16 +29,47 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Resolve release tag & version
+      - name: Read trigger & raw inputs
+        id: trigger
         shell: pwsh
         run: |
-          $tag = "${{ github.event.inputs.tag }}"
-          if ([string]::IsNullOrWhiteSpace($tag)) {
-            $tag = "${{ github.ref_name }}"
+          $eventName = "${{ github.event_name }}"
+          $inputTag  = "${{ github.event.inputs.tag }}"
+          $refName   = "${{ github.ref_name }}"
+
+          Write-Host "Trigger event : $eventName"
+          Write-Host "Input tag     : $inputTag"
+          Write-Host "Git ref name  : $refName"
+
+          "event_name=$eventName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "input_tag=$inputTag"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "ref_name=$refName"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Validate & resolve release version
+        id: version
+        shell: pwsh
+        run: |
+          $eventName = "${{ steps.trigger.outputs.event_name }}"
+          $inputTag  = "${{ steps.trigger.outputs.input_tag }}"
+          $refName   = "${{ steps.trigger.outputs.ref_name }}"
+
+          if ($eventName -eq "workflow_dispatch") {
+            $tag = $inputTag.Trim()
+          } else {
+            $tag = $refName.Trim()
           }
-          $ver = $tag.TrimStart('v')
-          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "APP_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          if ($tag -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            Write-Error "Invalid release tag '$tag'. Expected SemVer format like 'v1.0.0'."
+            exit 1
+          }
+
+          $appVersion = $tag.TrimStart('v')
+          Write-Host "Resolved release tag : $tag"
+          Write-Host "Resolved app version : $appVersion"
+
+          "release_tag=$tag"        | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "app_version=$appVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Run tests
         run: dotnet test --configuration Release
@@ -50,7 +82,7 @@ jobs:
           --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:Version=${{ env.APP_VERSION }}
+          -p:Version=${{ steps.version.outputs.app_version }}
           -o dist/win-x64
 
       - name: Package SQLcl-style portable ZIP & SHA-256 checksum
@@ -64,7 +96,7 @@ jobs:
           Copy-Item "scripts/install-local.ps1" "$stage/install-local.ps1"
           Copy-Item "scripts/install.cmd" "$stage/install.cmd"
 
-          $zipName = "mssqlcl-${{ env.RELEASE_TAG }}-win-x64.zip"
+          $zipName = "mssqlcl-${{ steps.version.outputs.release_tag }}-win-x64.zip"
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/$zipName" -Force
 
           $hash = (Get-FileHash -Path "dist/$zipName" -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -73,8 +105,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
+          tag_name: ${{ steps.version.outputs.release_tag }}
           generate_release_notes: true
           files: |
-            dist/mssqlcl-${{ env.RELEASE_TAG }}-win-x64.zip
+            dist/mssqlcl-${{ steps.version.outputs.release_tag }}-win-x64.zip
             dist/checksums.txt
