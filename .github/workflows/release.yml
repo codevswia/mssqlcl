@@ -85,7 +85,7 @@ jobs:
           -p:Version=${{ steps.version.outputs.app_version }}
           -o dist/win-x64
 
-      - name: Package SQLcl-style portable ZIP & SHA-256 checksum
+      - name: Package portable ZIP & SHA-256 checksum
         shell: pwsh
         run: |
           $stage = "dist/package"

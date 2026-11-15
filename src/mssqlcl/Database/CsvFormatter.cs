@@ -5,7 +5,7 @@ using System.Text;
 namespace MssqlCl.Database;
 
 /// <summary>
-/// Formats DbDataReader result sets into compact RFC 4180 CSV (modeled after SQLcl's SET SQLFORMAT CSV).
+/// Formats DbDataReader result sets into compact RFC 4180 CSV.
 /// </summary>
 public static class CsvFormatter
 {
