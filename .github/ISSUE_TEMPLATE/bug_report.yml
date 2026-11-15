@@ -1,0 +1,83 @@
+name: Bug Report
+description: Report a bug in mssqlcl CLI, MCP server, or IDE connection discovery
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue! Please fill out the details below so we can reproduce and fix it quickly.
+        > **Security reminder:** Never paste passwords, connection strings with secrets, or decrypted tokens.
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Installation Method
+      options:
+        - One-command installer (install.ps1)
+        - Portable ZIP (GitHub Release)
+        - Built from source (dotnet)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mcp_client
+    attributes:
+      label: MCP Client / Usage Mode
+      options:
+        - Antigravity IDE
+        - Claude Desktop
+        - Claude Code
+        - Cursor
+        - VS Code
+        - CLI only (mssqlcl doctor / conn)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connection_source
+    attributes:
+      label: Connection Source
+      options:
+        - Antigravity IDE (ms-mssql.mssql)
+        - VS Code (ms-mssql.mssql)
+        - Local DPAPI Vault (mssqlcl conn save)
+        - Environment variable (MSSQLCL_PWD_*)
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: mssqlcl Version & Windows Version
+      placeholder: "e.g., mssqlcl v1.0.2 on Windows 11 24H2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Clear description of the bug and what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Run '...'
+        2. Call MCP tool '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output of `mssqlcl doctor` / stderr logs
+      description: Paste any relevant diagnostic output (remove any sensitive hostnames if needed).
+      render: text
