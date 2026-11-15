@@ -1,68 +1,99 @@
-# mssqlcl
+<div align="center">
 
-**SQL Server MCP Server & CLI** with zero-config discovery for the **VS Code / Antigravity IDE SQL Server (`ms-mssql.mssql`)** connection store.
+  <img src="assets/logo.svg" alt="mssqlcl logo" width="110" height="110" />
 
-Configure your SQL Server connections once in VS Code, Antigravity IDE, or via `mssqlcl conn save`, and use them from any external MCP client (Antigravity, Claude Desktop, Claude Code, Cursor, etc.) over `stdio`.
+  <h1>mssqlcl</h1>
 
----
+  <p>
+    <strong>SQL Server MCP Server &amp; CLI with zero-config connection discovery for VS Code and Antigravity IDE.</strong>
+  </p>
 
-## Features
+  <p>
+    <a href="https://github.com/codevswia/mssqlcl/releases"><img src="https://img.shields.io/github/v/release/codevswia/mssqlcl?include_prereleases&style=flat-square&logo=github&color=0284C7" alt="Release" /></a>
+    <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white" alt=".NET 10" />
+    <img src="https://img.shields.io/badge/Platform-Windows%20x64-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows x64" />
+    <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-stdio%20JSON--RPC-0EA5E9?style=flat-square" alt="MCP Protocol" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-10B981?style=flat-square" alt="MIT License" /></a>
+  </p>
 
-- **Zero-config IDE profile discovery:** Reads `mssql.connections` and `mssql.connectionGroups` (JSONC) from:
-  - `%APPDATA%\Antigravity IDE\User\settings.json`
-  - `%APPDATA%\Code\User\settings.json`
-  - `%USERPROFILE%\.mssqlcl\connections.json` (local fallback)
-- **Automatic credential resolution (Windows):**
-  - **Windows Auth (`Integrated`):** Connects natively via Windows SSPI.
-  - **SQL Login (`SqlLogin`):** Reads `ms-mssql.mssql` secrets from the IDE's Electron `SecretStorage` (`Local State` DPAPI master key + `state.vscdb` AES-256-GCM `v10` payload), with fallback to a local Windows DPAPI vault (`%USERPROFILE%\.mssqlcl\vault.json`) or `MSSQLCL_PWD_<PROFILE>` environment variables.
-  - **Microsoft Entra ID / MFA (`AzureMFA`):** Uses `Microsoft.Data.SqlClient.Extensions.Azure` (`ActiveDirectoryInteractive`).
-- **11 database MCP tools** (multi-connection via `connectionId`):
-  - `mssql_list_servers`
-  - `mssql_connect`
-  - `mssql_disconnect`
-  - `mssql_get_connection_details`
-  - `mssql_change_database`
-  - `mssql_list_databases`
-  - `mssql_list_schemas`
-  - `mssql_list_tables`
-  - `mssql_list_views`
-  - `mssql_list_functions`
-  - `mssql_run_query`
-- **Ergonomics & safety:**
-  - Compact **CSV** output by default (optional `json`) to reduce LLM token usage, with `--max-rows` capping (default `500`).
-  - **`--readonly` by default:** T-SQL lexical guard skips comments, string literals, and quoted identifiers while blocking DML/DDL/execution keywords (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `EXEC`, `SELECT ... INTO`, etc.).
-  - **Local JSONL audit log** at `%USERPROFILE%\.mssqlcl\audit.log` (never creates tables inside target databases and never logs credentials).
-  - **Clean `stdio` transport:** All diagnostics go exclusively to `stderr`.
+  <p>
+    <a href="#-features">Features</a> •
+    <a href="#-prerequisites">Prerequisites</a> •
+    <a href="#-installation">Installation</a> •
+    <a href="#-mcp-client-configuration">MCP Setup</a> •
+    <a href="#-mcp-tools-reference">Tools (11)</a> •
+    <a href="#-cli-usage">CLI</a> •
+    <a href="#-security">Security</a>
+  </p>
+
+</div>
 
 ---
 
-## Requirements
+Configure your SQL Server connections **once** in **VS Code**, **Antigravity IDE** (`ms-mssql.mssql`), or via `mssqlcl conn save`, and expose them safely to any MCP-compatible AI client (**Antigravity**, **Claude Desktop**, **Claude Code**, **Cursor**, etc.) over `stdio`.
 
-- Windows 10 / 11 (DPAPI + Electron `SecretStorage` decryption)
-- **End users (ZIP / Release):** No .NET installation required (self-contained binary)
-- **Building from source:** [.NET 10 SDK](https://dotnet.microsoft.com/download)
+```mermaid
+flowchart LR
+    Client["AI Client<br/>(Antigravity / VS Code / Cursor / Claude)"] <-->|"stdio<br/>JSON-RPC 2.0"| Server["mssqlcl --mcp<br/>(Self-contained .NET 10)"]
+    Server -->|"Zero-config discovery"| IDE["VS Code / Antigravity IDE<br/>(ms-mssql.mssql + SecretStorage)"]
+    Server -->|"Fallback / Override"| Vault["Local DPAPI Vault<br/>(%USERPROFILE%\.mssqlcl)"]
+    Server -->|"Read-only guard<br/>&amp; T-SQL"| SQL[("SQL Server /<br/>Azure SQL")]
+```
 
 ---
 
-## Installation
+## ✨ Features
 
-### Option 1: Portable ZIP (Offline — Recommended)
+| Capability | What it gives you |
+| :--- | :--- |
+| **Zero-Config IDE Discovery** | Automatically reads `mssql.connections` and `mssql.connectionGroups` (JSONC) from **Antigravity IDE**, **VS Code**, and `%USERPROFILE%\.mssqlcl\connections.json`. |
+| **Automatic Credential Resolution** | Supports **Windows Auth (`Integrated`)**, **SQL Login (`SqlLogin`)** via Electron `SecretStorage` (`Local State` DPAPI + `state.vscdb` AES-256-GCM) or local DPAPI vault, and **Microsoft Entra ID / MFA (`AzureMFA`)**. |
+| **11 Multi-Connection MCP Tools** | Full server discovery, connection management, schema/object inspection, and query execution keyed by `connectionId`. |
+| **Token-Efficient Output** | Compact **CSV** output by default (optional `json`) with `--max-rows` capping (default `500`) to minimize LLM token usage. |
+| **Read-Only Lexical Guard** | `--readonly` enabled by default: skips comments, string literals, and quoted identifiers while blocking DML/DDL/execution keywords (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `EXEC`, `SELECT ... INTO`, etc.). |
+| **Clean `stdio` & Local Audit** | Diagnostics go exclusively to `stderr`. Queries are logged locally to JSONL at `%USERPROFILE%\.mssqlcl\audit.log` without touching target databases or logging secrets. |
+
+---
+
+## 📋 Prerequisites
+
+- **Operating System:** Windows 10 / 11 (`x64`) — required for Windows DPAPI and Electron `SecretStorage` decryption.
+- **Connection Source *(choose one)*:**
+  - **Recommended (Zero-Config):** **VS Code** or **Antigravity IDE** with the **[SQL Server (`ms-mssql.mssql`)](https://marketplace.visualstudio.com/items?itemName=ms-mssql.mssql)** extension and your connections already saved.
+  - **Standalone (No IDE required):** Manage profiles directly via `mssqlcl conn save` (stored in `%USERPROFILE%\.mssqlcl\` encrypted with Windows DPAPI) or `MSSQLCL_PWD_<PROFILE>` environment variables.
+- **Runtime:**
+  - **End users (Release ZIP / Installer):** **No .NET installation required** (self-contained binary).
+  - **Building from source:** [.NET 10 SDK](https://dotnet.microsoft.com/download).
+
+> [!TIP]
+> If you already use the `ms-mssql.mssql` extension in VS Code or Antigravity IDE, you don't need to re-enter passwords or maintain separate connection strings—`mssqlcl` discovers them automatically.
+
+---
+
+## 📦 Installation
+
+### Option 1: One-Command Online Installer *(PowerShell, no .NET SDK required)*
+
+```powershell
+irm https://raw.githubusercontent.com/codevswia/mssqlcl/main/scripts/install.ps1 | iex
+```
+
+Downloads the latest release ZIP to `%LOCALAPPDATA%\Programs\mssqlcl` and adds it to your User `PATH` (no Administrator privileges required).
+
+<details>
+<summary><strong>Option 2: Portable ZIP (Offline — Zero system changes or User PATH)</strong></summary>
 
 1. Download `mssqlcl-vX.Y.Z-win-x64.zip` from [GitHub Releases](https://github.com/codevswia/mssqlcl/releases).
 2. Extract it anywhere (for example `C:\tools\mssqlcl\`).
 3. Choose how you want to run it:
    - **Portable (zero system changes):** Point your MCP config directly to `C:\tools\mssqlcl\mssqlcl.exe` (no `PATH` changes).
    - **Install to User `PATH` (no Admin required):** Double-click `install.cmd` (or run `powershell -ExecutionPolicy Bypass -File .\install-local.ps1`) to copy `mssqlcl.exe` to `%LOCALAPPDATA%\Programs\mssqlcl` and add it to your User `PATH`. Restart your IDE afterwards if it was already open.
+   - **Offline via main installer:** `.\scripts\install.ps1 -LocalZip path\to\mssqlcl-vX.Y.Z-win-x64.zip`
 
-### Option 2: One-Command Online Installer (PowerShell, no .NET SDK required)
+</details>
 
-```powershell
-irm https://raw.githubusercontent.com/codevswia/mssqlcl/main/scripts/install.ps1 | iex
-```
-
-*(Installs the latest release ZIP to `%LOCALAPPDATA%\Programs\mssqlcl` and updates User `PATH`. You can also install a manually downloaded ZIP offline via `.\scripts\install.ps1 -LocalZip path\to\mssqlcl-vX.Y.Z-win-x64.zip`.)*
-
-### Option 3: Build & Install from Source (requires .NET 10 SDK)
+<details>
+<summary><strong>Option 3: Build &amp; Install from Source (requires .NET 10 SDK)</strong></summary>
 
 ```powershell
 # Build & run unit tests
@@ -75,9 +106,64 @@ dotnet test
 .\scripts\install.ps1 -FromSource -SelfContained
 ```
 
+</details>
+
 ---
 
-## CLI Usage
+## 🔌 MCP Client Configuration
+
+Add `mssqlcl` to your MCP client configuration (such as **Antigravity IDE** `mcp_config.json`, **Claude Desktop** `claude_desktop_config.json`, or **Cursor**):
+
+```json
+{
+  "mcpServers": {
+    "mssqlcl": {
+      "command": "mssqlcl",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+> [!NOTE]
+> If you installed `mssqlcl` in portable mode without adding it to `PATH`, replace `"mssqlcl"` in `"command"` with the full path (e.g. `"C:\\tools\\mssqlcl\\mssqlcl.exe"`).
+
+### Optional MCP Flags
+
+| Flag | Default | Description |
+| :--- | :--- | :--- |
+| `--readonly` | enabled | Blocks DML/DDL/EXEC statements via lexical T-SQL inspection |
+| `--readwrite` | off | Allows write/DDL statements in `mssql_run_query` |
+| `--max-rows <N>` | `500` | Caps returned rows per result set |
+| `--timeout <sec>` | `30` | Default SQL command timeout in seconds |
+| `--source <mode>` | `auto` | `auto`, `antigravity`, `vscode`, or `local` |
+| `--no-audit` | off | Disables writing to `%USERPROFILE%\.mssqlcl\audit.log` |
+
+---
+
+## 🛠️ MCP Tools Reference
+
+`mssqlcl` exposes **11 database tools** to your AI assistant, supporting multiple simultaneous connections via `connectionId`:
+
+| Category | Tool | Description |
+| :--- | :--- | :--- |
+| **Discovery** | `mssql_list_servers` | Lists discovered SQL Server profiles from Antigravity IDE, VS Code, and local vault |
+| **Connection** | `mssql_connect` | Opens a connection to a profile and returns a `connectionId` |
+| **Connection** | `mssql_disconnect` | Closes an active `connectionId` session |
+| **Connection** | `mssql_get_connection_details` | Returns active connection metadata (server, database, auth type, state) |
+| **Connection** | `mssql_change_database` | Switches the active database context (`USE <db>`) for a `connectionId` |
+| **Schema** | `mssql_list_databases` | Lists databases on the connected SQL Server instance |
+| **Schema** | `mssql_list_schemas` | Lists schemas in the current database |
+| **Schema** | `mssql_list_tables` | Lists tables (with schema and metadata) |
+| **Schema** | `mssql_list_views` | Lists views in the current database |
+| **Schema** | `mssql_list_functions` | Lists scalar/table-valued functions |
+| **Query** | `mssql_run_query` | Executes T-SQL (protected by `--readonly` guard by default, CSV/JSON output) |
+
+---
+
+## 💻 CLI Usage
+
+Use the CLI directly to verify your environment, inspect discovered IDE profiles, or manage local DPAPI credentials:
 
 ```powershell
 # Verify environment, IDE discovery paths, and local vault health
@@ -100,46 +186,23 @@ mssqlcl conn delete "LocalDev"
 
 ---
 
-## MCP Client Configuration
+## 🔒 Security
 
-Add `mssqlcl` to your MCP client configuration (for example `mcp_config.json` or `claude_desktop_config.json`):
+> [!IMPORTANT]
+> Only pass `--readwrite` against databases where write or DDL operations are explicitly intended.
 
-```json
-{
-  "mcpServers": {
-    "mssqlcl": {
-      "command": "mssqlcl",
-      "args": ["--mcp"]
-    }
-  }
-}
-```
-
-### Optional MCP Flags
-
-| Flag | Default | Description |
-| :--- | :--- | :--- |
-| `--readonly` | enabled | Blocks DML/DDL/EXEC statements via lexical T-SQL inspection |
-| `--readwrite` | off | Allows write/DDL statements in `mssql_run_query` |
-| `--max-rows <N>` | `500` | Caps returned rows per result set |
-| `--timeout <sec>` | `30` | Default SQL command timeout in seconds |
-| `--source <mode>` | `auto` | `auto`, `antigravity`, `vscode`, or `local` |
-| `--no-audit` | off | Disables writing to `%USERPROFILE%\.mssqlcl\audit.log` |
+- **Zero plaintext secret leaks:** `mssqlcl` never writes decrypted passwords to disk, `stdout`, `stderr`, or `audit.log`.
+- **Safe IDE vault reading:** `state.vscdb` is copied to a temporary file in read-only mode before querying and deleted immediately afterwards, so it works safely even while **VS Code** or **Antigravity IDE** is running.
+- **Zero target database footprint:** Audit logs are stored strictly locally at `%USERPROFILE%\.mssqlcl\audit.log`.
 
 ---
 
-## Security Notes
-
-- `mssqlcl` never writes decrypted passwords to disk, `stdout`, `stderr`, or `audit.log`.
-- `state.vscdb` is copied to a temporary file in read-only mode before querying and deleted immediately afterwards, so it works safely even while VS Code or Antigravity IDE is open.
-- Only run `--readwrite` against databases where write access is explicitly intended.
-
-## Author & Organization
+## 👤 Author & Organization
 
 - **Author:** Brayan Raul Sullca Ccarampa
 - **Organization:** [codevswia](https://github.com/codevswia) — *Human Ideas. AI-Powered Development.*
 - **Repository:** [github.com/codevswia/mssqlcl](https://github.com/codevswia/mssqlcl)
 
-## License
+## 📄 License
 
-MIT — see [LICENSE](LICENSE).
+Distributed under the **MIT License** — see [LICENSE](LICENSE) for details.
