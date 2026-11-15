@@ -179,37 +179,37 @@ jobs:
           $relevantList = Get-Content "$env:RUNNER_TEMP/relevant_files.md" -Raw -Encoding utf8
 
           $title = "[upstream-sync] vscode-mssql $latestTag"
-          $issueBody = @"
-## Upstream Release Detected
-
-- **Repository:** ``$env:UPSTREAM_REPO``
-- **New Release:** [``$latestTag``]($releaseUrl) (published ``$publishedAt``)
-- **Compared Against:** ``$compareBase``
-
----
-
-## Relevant MCP / Connection Changes (``$compareBase...$latestTag``)
-
-$relevantList
-
----
-
-## Evaluation Checklist for ``mssqlcl``
-
-- [ ] New MCP tools or parameters in ``extensions/mssql/src/copilot/tools/``?
-- [ ] New MCP prompts / behavior updates in ``prompts.ts``?
-- [ ] Changes in ``mssql.connections`` schema or ``SecretStorage`` format?
-- [ ] UI-only VS Code changes (ignore for headless ``mssqlcl``).
-
----
-
-<details>
-<summary>Upstream Release Notes ($latestTag)</summary>
-
-$releaseNotes
-
-</details>
-"@
+          $issueBody = @(
+            "## Upstream Release Detected",
+            "",
+            "- **Repository:** ``$env:UPSTREAM_REPO``",
+            "- **New Release:** [``$latestTag``]($releaseUrl) (published ``$publishedAt``)",
+            "- **Compared Against:** ``$compareBase``",
+            "",
+            "---",
+            "",
+            "## Relevant MCP / Connection Changes (``$compareBase...$latestTag``)",
+            "",
+            "$relevantList",
+            "",
+            "---",
+            "",
+            "## Evaluation Checklist for ``mssqlcl``",
+            "",
+            "- [ ] New MCP tools or parameters in ``extensions/mssql/src/copilot/tools/``?",
+            "- [ ] New MCP prompts / behavior updates in ``prompts.ts``?",
+            "- [ ] Changes in ``mssql.connections`` schema or ``SecretStorage`` format?",
+            "- [ ] UI-only VS Code changes (ignore for headless ``mssqlcl``).",
+            "",
+            "---",
+            "",
+            "<details>",
+            "<summary>Upstream Release Notes ($latestTag)</summary>",
+            "",
+            "$releaseNotes",
+            "",
+            "</details>"
+          ) -join "`n"
 
           if ("${{ github.event.inputs.dry_run }}" -eq "true") {
             Write-Host "=== DRY RUN: Would create Issue '$title' ==="
