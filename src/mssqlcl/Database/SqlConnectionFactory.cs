@@ -17,12 +17,15 @@ public static class SqlConnectionFactory
             return;
         }
 
-        if (SqlAuthenticationProvider.GetProvider(SqlAuthenticationMethod.ActiveDirectoryInteractive) is null)
+        var provider = new ActiveDirectoryAuthenticationProvider();
+        if (OperatingSystem.IsWindows())
         {
-            SqlAuthenticationProvider.SetProvider(
-                SqlAuthenticationMethod.ActiveDirectoryInteractive,
-                new ActiveDirectoryAuthenticationProvider());
+            provider.SetParentActivityOrWindowFunc(() => WindowsWindowHelper.GetParentWindowHandle());
         }
+
+        SqlAuthenticationProvider.SetProvider(
+            SqlAuthenticationMethod.ActiveDirectoryInteractive,
+            provider);
     }
 
     public static SqlConnectionStringBuilder BuildConnectionString(
