@@ -13,10 +13,19 @@
     <RepositoryUrl>https://github.com/codevswia/mssqlcl</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>mssqlcl</ToolCommandName>
+    <PackageId>mssqlcl</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>mcp;mcp-server;model-context-protocol;sql-server;mssql;azuresql;cli;vscode;antigravity</PackageTags>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Description>SQL Server MCP server and CLI with zero-config VS Code and Antigravity IDE ms-mssql connection discovery.</Description>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.2" />
