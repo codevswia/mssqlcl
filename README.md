@@ -206,3 +206,5 @@ mssqlcl conn delete "LocalDev"
 ## 📄 License
 
 Distributed under the **MIT License** — see [LICENSE](LICENSE) for details.
+
+<!-- mcp-name: io.github.codevswia/mssqlcl -->
