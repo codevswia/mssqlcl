@@ -13,12 +13,17 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-windows:
     name: Build & Package (win-x64)
     runs-on: windows-latest
+    permissions:
+      contents: write
+    outputs:
+      app_version: ${{ steps.version.outputs.app_version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
 
     steps:
       - name: Checkout repository
@@ -110,3 +115,40 @@ jobs:
           files: |
             dist/mssqlcl-${{ steps.version.outputs.release_tag }}-win-x64.zip
             dist/checksums.txt
+
+  publish-nuget:
+    name: Publish NuGet (dotnet tool)
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack NuGet dotnet tool
+        run: >
+          dotnet pack src/mssqlcl/mssqlcl.csproj
+          -c Release
+          -p:Version=${{ needs.build-windows.outputs.app_version }}
+          -o dist/nupkg
+
+      - name: NuGet Login (Trusted Publishing OIDC)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: bry4nr4u1.ai
+
+      - name: Push package to NuGet.org
+        run: >
+          dotnet nuget push dist/nupkg/*.nupkg
+          --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
