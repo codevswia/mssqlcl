@@ -40,6 +40,12 @@ flowchart LR
     Server -->|"Read-only guard<br/>&amp; T-SQL"| SQL[("SQL Server /<br/>Azure SQL")]
 ```
 
+### 🎥 Quick Demo — End-to-End in Antigravity
+
+<div align="center">
+  <img src="assets/antigravity-demo.gif" alt="mssqlcl Antigravity Demo" width="820" />
+</div>
+
 ---
 
 ## ✨ Features
@@ -138,6 +144,44 @@ Add `mssqlcl` to your MCP client configuration (such as **Antigravity IDE** `mcp
 | `--timeout <sec>` | `30` | Default SQL command timeout in seconds |
 | `--source <mode>` | `auto` | `auto`, `antigravity`, `vscode`, or `local` |
 | `--no-audit` | off | Disables writing to `%USERPROFILE%\.mssqlcl\audit.log` |
+
+---
+
+## 🎬 Video Walkthroughs
+
+<details open>
+<summary><strong>🚀 Antigravity (IDE + App) — Full Walkthroughs</strong></summary>
+
+<blockquote>
+
+<details>
+<summary>▶️ <strong>Guide 1: SQL Login</strong> — Save connection, install <code>mssqlcl</code> MCP &amp; query SQL Server (3m 41s)</summary>
+
+https://github.com/user-attachments/assets/b5a99cef-7ed1-4fe2-acab-0bd34b7e16ae
+
+</details>
+
+<details>
+<summary>▶️ <strong>Guide 2: Microsoft Entra ID / MFA</strong> — Save Azure SQL MFA connection, install MCP &amp; query with AI (3m 38s)</summary>
+
+https://github.com/user-attachments/assets/1ff4a37a-32d5-432e-9a07-061de0f1503d
+
+</details>
+
+</blockquote>
+
+</details>
+
+<details>
+<summary><strong>💻 VS Code — Full Walkthroughs (Coming Soon)</strong></summary>
+
+<blockquote>
+
+*Walkthroughs for VS Code (`ms-mssql.mssql`) coming soon.*
+
+</blockquote>
+
+</details>
 
 ---
 
