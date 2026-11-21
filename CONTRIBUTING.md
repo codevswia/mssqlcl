@@ -65,6 +65,10 @@ Because `mssqlcl` interacts with SQL Server connections and local IDE credential
    - `chore/<short-description>` or `ci/<short-description>` — tooling, dependencies, or workflows
 2. **Use [Conventional Commits](https://www.conventionalcommits.org/)** for commit messages:
    - Examples: `feat: add support for custom port discovery`, `fix(auth): handle expired MFA token`, `docs: add VS Code walkthrough`.
+   - **AI-assisted contributions:** If you used an AI coding agent (such as Antigravity, GitHub Copilot, Claude Code, or Cursor) to implement changes, please add a `Co-authored-by:` trailer to your commit message for transparency (you remain responsible for reviewing and verifying all generated code and tests):
+     ```text
+     Co-authored-by: Antigravity <noreply@google.com>
+     ```
 3. **Verify locally before pushing:**
    - Run `dotnet test --configuration Release` and ensure all tests pass.
 4. **Open a Pull Request into `main`:**
