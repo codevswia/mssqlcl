@@ -3,8 +3,8 @@ run-name: Watch extension-mssql (${{ github.event_name }})
 
 on:
   schedule:
-    # Runs every Monday at 06:00 AM Peru time (UTC-5 = 11:00 UTC)
-    - cron: '0 11 * * 1'
+    # Runs every Monday and Friday at 06:00 AM Peru time (UTC-5 = 11:00 UTC)
+    - cron: '0 11 * * 1,5'
   workflow_dispatch:
     inputs:
       dry_run:
