@@ -255,6 +255,7 @@ mssqlcl conn delete "LocalDev"
 - **Author:** Brayan Raul Sullca Ccarampa
 - **Organization:** [codevswia](https://github.com/codevswia) — *Human Ideas. AI-Powered Development.*
 - **Repository:** [github.com/codevswia/mssqlcl](https://github.com/codevswia/mssqlcl)
+- **Listed on:** [NuGet](https://www.nuget.org/packages/mssqlcl) · [Official MCP Registry](https://registry.modelcontextprotocol.io/?q=mssqlcl) · [Glama](https://glama.ai/mcp/servers/codevswia/mssqlcl)
 
 ## 📄 License
 
