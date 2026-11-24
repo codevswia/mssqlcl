@@ -160,6 +160,8 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    env:
+      NUGET_FLATCONTAINER_BASE_URL: https://api.nuget.org/v3-flatcontainer
 
     steps:
       - name: Checkout repository
@@ -170,6 +172,25 @@ jobs:
           VERSION="${{ needs.build-windows.outputs.app_version }}"
           jq --arg v "$VERSION" '.version = $v | .packages[0].version = $v' server.json > server.json.tmp
           mv server.json.tmp server.json
+
+      - name: Wait for NuGet package indexing
+        run: |
+          VERSION="${{ needs.build-windows.outputs.app_version }}"
+          PKG_ID=$(jq -r '.packages[0].identifier | ascii_downcase' server.json)
+          INDEX_URL="${NUGET_FLATCONTAINER_BASE_URL}/${PKG_ID}/index.json"
+          echo "Waiting for ${PKG_ID}@${VERSION} at ${INDEX_URL}..."
+
+          for i in $(seq 1 30); do
+            if curl -fsSL "$INDEX_URL" | jq -e --arg v "$VERSION" '.versions | index($v) != null' >/dev/null 2>&1; then
+              echo "Version ${VERSION} is indexed on NuGet.org (attempt ${i}/30)."
+              exit 0
+            fi
+            echo "Attempt ${i}/30: ${VERSION} not indexed yet. Waiting 30s..."
+            sleep 30
+          done
+
+          echo "::error::Timed out waiting for ${PKG_ID}@${VERSION} to appear on NuGet.org after 15 minutes."
+          exit 1
 
       - name: Install mcp-publisher
         run: |
