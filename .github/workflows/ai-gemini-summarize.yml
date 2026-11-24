@@ -176,51 +176,67 @@ jobs:
           $outputTokens = "0"
           $totalTokens  = "0"
 
+          $maxRetriesPerModel = 1
           foreach ($model in $models) {
             $uri = "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent"
             $headers = @{ "x-goog-api-key" = $env:GEMINI_API_KEY }
-            $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-            try {
-              Write-Host "Trying model: $model"
-              $resp = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType "application/json; charset=utf-8" -Body $bodyBytes -TimeoutSec 30 -ErrorAction Stop
-              $sw.Stop()
-              $sec = [Math]::Round($sw.Elapsed.TotalSeconds, 2)
+            for ($attempt = 1; $attempt -le (1 + $maxRetriesPerModel); $attempt++) {
+              $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-              $parts = @()
-              if ($resp.candidates -and $resp.candidates.Count -gt 0 -and $resp.candidates[0].content.parts) {
-                $parts = $resp.candidates[0].content.parts | Where-Object { -not $_.thought -and -not [string]::IsNullOrWhiteSpace($_.text) }
+              try {
+                Write-Host "Trying model: $model (attempt $attempt)"
+                $resp = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -ContentType "application/json; charset=utf-8" -Body $bodyBytes -TimeoutSec 90 -ErrorAction Stop
+                $sw.Stop()
+                $sec = [Math]::Round($sw.Elapsed.TotalSeconds, 2)
+
+                $parts = @()
+                if ($resp.candidates -and $resp.candidates.Count -gt 0 -and $resp.candidates[0].content.parts) {
+                  $parts = $resp.candidates[0].content.parts | Where-Object { -not $_.thought -and -not [string]::IsNullOrWhiteSpace($_.text) }
+                }
+
+                $candidateText = (($parts | ForEach-Object { $_.text }) -join "`n").Trim()
+                if ([string]::IsNullOrWhiteSpace($candidateText)) {
+                  Write-Warning "Model $model returned an empty response in ${sec}s."
+                  $attempts += "| ``$model`` | Empty response (attempt $attempt) | ${sec}s | - |"
+                  break
+                }
+
+                $aiText = $candidateText
+                $usedModel = $model
+
+                if ($resp.usageMetadata) {
+                  $promptTokens = "$($resp.usageMetadata.promptTokenCount)"
+                  $outputTokens = "$($resp.usageMetadata.candidatesTokenCount)"
+                  $totalTokens  = "$($resp.usageMetadata.totalTokenCount)"
+                }
+
+                $attempts += "| ``$model`` | **200 OK** (attempt $attempt) | ${sec}s | $promptTokens / $outputTokens / $totalTokens |"
+                break
+              } catch {
+                $sw.Stop()
+                $sec = [Math]::Round($sw.Elapsed.TotalSeconds, 2)
+                $statusCode = $null
+                if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                  $statusCode = [int]$_.Exception.Response.StatusCode
+                }
+                $errLabel = if ($statusCode) { "HTTP $statusCode" } else { ($_.Exception.Message -replace '[\r\n\|]+', ' ').Trim() }
+                if ($errLabel.Length -gt 80) { $errLabel = $errLabel.Substring(0, 77) + "..." }
+                Write-Warning "Model $model failed on attempt $attempt ($errLabel) in ${sec}s."
+                $attempts += "| ``$model`` | $errLabel (attempt $attempt) | ${sec}s | - |"
+
+                $isTransient = $statusCode -in @(429, 503)
+                if ($isTransient -and $attempt -le $maxRetriesPerModel) {
+                  Write-Host "Transient error ($errLabel). Waiting 3s before retry..."
+                  Start-Sleep -Seconds 3
+                  continue
+                }
+                break
               }
+            }
 
-              $candidateText = (($parts | ForEach-Object { $_.text }) -join "`n").Trim()
-              if ([string]::IsNullOrWhiteSpace($candidateText)) {
-                Write-Warning "Model $model returned an empty response in ${sec}s."
-                $attempts += "| ``$model`` | Empty response | ${sec}s | - |"
-                continue
-              }
-
-              $aiText = $candidateText
-              $usedModel = $model
-
-              if ($resp.usageMetadata) {
-                $promptTokens = "$($resp.usageMetadata.promptTokenCount)"
-                $outputTokens = "$($resp.usageMetadata.candidatesTokenCount)"
-                $totalTokens  = "$($resp.usageMetadata.totalTokenCount)"
-              }
-
-              $attempts += "| ``$model`` | **200 OK** | ${sec}s | $promptTokens / $outputTokens / $totalTokens |"
+            if (-not [string]::IsNullOrWhiteSpace($aiText)) {
               break
-            } catch {
-              $sw.Stop()
-              $sec = [Math]::Round($sw.Elapsed.TotalSeconds, 2)
-              $statusCode = $null
-              if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
-                $statusCode = [int]$_.Exception.Response.StatusCode
-              }
-              $errLabel = if ($statusCode) { "HTTP $statusCode" } else { ($_.Exception.Message -replace '[\r\n\|]+', ' ').Trim() }
-              if ($errLabel.Length -gt 80) { $errLabel = $errLabel.Substring(0, 77) + "..." }
-              Write-Warning "Model $model failed ($errLabel) in ${sec}s."
-              $attempts += "| ``$model`` | $errLabel | ${sec}s | - |"
             }
           }
 
