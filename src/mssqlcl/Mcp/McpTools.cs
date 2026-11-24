@@ -13,10 +13,10 @@ using MssqlCl.Security;
 namespace MssqlCl.Mcp;
 
 /// <summary>
-/// Exposes the 11 SQL Server database MCP tools.
+/// Exposes the 20 SQL Server database MCP tools.
 /// </summary>
 [McpServerToolType]
-public sealed class MssqlTools
+public sealed partial class MssqlTools
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 

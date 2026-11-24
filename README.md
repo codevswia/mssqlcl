@@ -54,7 +54,7 @@ flowchart LR
 | :--- | :--- |
 | **Zero-Config IDE Discovery** | Automatically reads `mssql.connections` and `mssql.connectionGroups` (JSONC) from **Antigravity IDE**, **VS Code**, and `%USERPROFILE%\.mssqlcl\connections.json`. |
 | **Automatic Credential Resolution** | Supports **Windows Auth (`Integrated`)**, **SQL Login (`SqlLogin`)** via Electron `SecretStorage` (`Local State` DPAPI + `state.vscdb` AES-256-GCM) or local DPAPI vault, and **Microsoft Entra ID / MFA (`AzureMFA`)**. |
-| **11 Multi-Connection MCP Tools** | Full server discovery, connection management, schema/object inspection, and query execution keyed by `connectionId`. |
+| **20 Multi-Connection MCP Tools** | Full server discovery, connection management, schema/object inspection, Query Store diagnostics, and query execution keyed by `connectionId`. |
 | **Token-Efficient Output** | Compact **CSV** output by default (optional `json`) with `--max-rows` capping (default `500`) to minimize LLM token usage. |
 | **Read-Only Lexical Guard** | `--readonly` enabled by default: skips comments, string literals, and quoted identifiers while blocking DML/DDL/execution keywords (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `EXEC`, `SELECT ... INTO`, etc.). |
 | **Clean `stdio` & Local Audit** | Diagnostics go exclusively to `stderr`. Queries are logged locally to JSONL at `%USERPROFILE%\.mssqlcl\audit.log` without touching target databases or logging secrets. |
@@ -187,7 +187,7 @@ https://github.com/user-attachments/assets/1ff4a37a-32d5-432e-9a07-061de0f1503d
 
 ## 🛠️ MCP Tools Reference
 
-`mssqlcl` exposes **11 database tools** to your AI assistant, supporting multiple simultaneous connections via `connectionId`:
+`mssqlcl` exposes **20 database tools** to your AI assistant, supporting multiple simultaneous connections via `connectionId`:
 
 | Category | Tool | Description |
 | :--- | :--- | :--- |
@@ -202,6 +202,15 @@ https://github.com/user-attachments/assets/1ff4a37a-32d5-432e-9a07-061de0f1503d
 | **Schema** | `mssql_list_views` | Lists views in the current database |
 | **Schema** | `mssql_list_functions` | Lists scalar/table-valued functions |
 | **Query** | `mssql_run_query` | Executes T-SQL (protected by `--readonly` guard by default, CSV/JSON output) |
+| **Query Store** | `mssql_query_store_status` | Checks Query Store state, storage usage, retention, and capture mode |
+| **Query Store** | `mssql_query_store_top_queries` | Top N queries ranked by duration, CPU, logical reads, writes, memory, or executions |
+| **Query Store** | `mssql_query_store_query_details` | SQL text, compile metadata, and aggregated runtime metrics for a `queryId` |
+| **Query Store** | `mssql_query_store_history` | Time-bucketed execution history for a `queryId` |
+| **Query Store** | `mssql_query_store_wait_stats` | Top Query Store wait categories (SQL Server 2017+ / Azure SQL) |
+| **Query Store** | `mssql_query_store_plans` | Execution plans, metrics, forced status, and force failures for a `queryId` |
+| **Query Store** | `mssql_query_store_analyze_query` | Consolidated diagnostic (details + plans + waits + multi-plan/failure flags) |
+| **Query Store** | `mssql_query_store_verify_forced_plan` | Verifies whether a forced plan is active and free of force failures |
+| **Query Store** | `mssql_query_store_force_plan` | Forces or unforces a plan (`--readwrite` required) |
 
 ---
 
